@@ -2,32 +2,21 @@
 
 namespace SMW\Tests\Integration\MediaWiki;
 
-use SMW\Tests\Utils\UtilityFactory;
-use SMW\Tests\Utils\PageCreator;
-use SMW\Tests\Utils\PageDeleter;
-
-use SMW\Tests\MwDBaseUnitTestCase;
-
-use SMW\ApplicationFactory;
-use SMW\ParserData;
-use SMW\DIWikiPage;
-use SMW\ContentParser;
-
-use ParserOutput;
 use LinksUpdate;
+use ParserOutput;
 use Revision;
-use WikiPage;
+use SMW\ContentParser;
+use SMW\DIWikiPage;
+use SMW\ParserData;
+use SMW\Tests\MwDBaseUnitTestCase;
+use SMW\Tests\Utils\PageCreator;
 use Title;
-use User;
-
 use UnexpectedValueException;
+use User;
+use WikiPage;
 
 /**
- *
- * @group SMW
- * @group SMWExtension
- * @group semantic-mediawiki-integration
- * @group mediawiki-database
+ * @group semantic-mediawiki
  * @group medium
  *
  * @license GNU GPL v2+
@@ -40,7 +29,6 @@ class LinksUpdateSQLStoreDBIntegrationTest extends MwDBaseUnitTestCase {
 	protected $destroyDatabaseTablesBeforeRun = true;
 
 	private $title = null;
-	private $applicationFactory;
 	private $mwHooksHandler;
 	private $semanticDataValidator;
 	private $pageDeleter;
@@ -48,17 +36,18 @@ class LinksUpdateSQLStoreDBIntegrationTest extends MwDBaseUnitTestCase {
 	protected function setUp() {
 		parent::setUp();
 
-		$this->mwHooksHandler = UtilityFactory::getInstance()->newMwHooksHandler();
+		$this->testEnvironment->addConfiguration(
+			'smwgPageSpecialProperties',
+			 array( '_MDAT' )
+		);
 
-		$this->mwHooksHandler
-			->deregisterListedHooks()
-			->invokeHooksFromRegistry();
+		$this->mwHooksHandler = $this->testEnvironment->getUtilityFactory()->newMwHooksHandler();
 
-		$this->semanticDataValidator = UtilityFactory::getInstance()->newValidatorFactory()->newSemanticDataValidator();
-		$this->pageDeleter = new PageDeleter();
+		$this->mwHooksHandler->deregisterListedHooks();
+		$this->mwHooksHandler->invokeHooksFromRegistry();
 
-		$this->applicationFactory = ApplicationFactory::getInstance();
-		$this->applicationFactory->getSettings()->set( 'smwgPageSpecialProperties', array( '_MDAT' ) );
+		$this->semanticDataValidator = $this->testEnvironment->getUtilityFactory()->newValidatorFactory()->newSemanticDataValidator();
+		$this->pageDeleter = $this->testEnvironment->getUtilityFactory()->newPageDeleter();
 	}
 
 	public function tearDown() {
@@ -99,6 +88,8 @@ class LinksUpdateSQLStoreDBIntegrationTest extends MwDBaseUnitTestCase {
 		$beforeAlterationRevId = $this->createSinglePageWithAnnotations();
 		$afterAlterationRevId  = $this->alterPageContentToCreateNewRevisionWithoutAnnotations();
 
+		$this->testEnvironment->executePendingDeferredUpdates();
+
 		$this->fetchRevisionAndRunLinksUpdater(
 			$expected['beforeAlterationRevId'],
 			$beforeAlterationRevId
@@ -113,12 +104,18 @@ class LinksUpdateSQLStoreDBIntegrationTest extends MwDBaseUnitTestCase {
 	protected function createSinglePageWithAnnotations() {
 		$pageCreator = new PageCreator();
 		$pageCreator->createPage( $this->title )->doEdit( 'Add user property Aa and Fuyu {{#set:|Aa=Bb|Fuyu=Natsu}}' );
+
+		$this->testEnvironment->executePendingDeferredUpdates();
+
 		return $pageCreator->getPage()->getRevision()->getId();
 	}
 
 	protected function alterPageContentToCreateNewRevisionWithoutAnnotations() {
 		$pageCreator = new PageCreator();
 		$pageCreator->createPage( $this->title )->doEdit( 'No annotations' );
+
+		$this->testEnvironment->executePendingDeferredUpdates();
+
 		return $pageCreator->getPage()->getRevision()->getId();
 	}
 
@@ -128,11 +125,11 @@ class LinksUpdateSQLStoreDBIntegrationTest extends MwDBaseUnitTestCase {
 		$revision = $wikiPage->getRevision();
 
 		$parserData = $this->retrieveAndLoadData();
-		$this->assertCount( 3, $parserData->getData()->getProperties() );
+		$this->assertCount( 3, $parserData->getSemanticData()->getProperties() );
 
 		$this->assertEquals(
-			$parserData->getData(),
-			$this->retrieveAndLoadData( $revision->getId() )->getData(),
+			$parserData->getSemanticData()->getHash(),
+			$this->retrieveAndLoadData( $revision->getId() )->getSemanticData()->getHash(),
 			'Asserts that data are equals with or without a revision'
 		);
 
@@ -167,7 +164,7 @@ class LinksUpdateSQLStoreDBIntegrationTest extends MwDBaseUnitTestCase {
 	protected function assertPropertyCount( $poExpected, $storeExpected, $parserData ) {
 		$this->semanticDataValidator->assertThatSemanticDataHasPropertyCountOf(
 			$poExpected['count'],
-			$parserData->getData(),
+			$parserData->getSemanticData(),
 			$poExpected['msg']
 		);
 
@@ -181,6 +178,8 @@ class LinksUpdateSQLStoreDBIntegrationTest extends MwDBaseUnitTestCase {
 	protected function runLinksUpdater( Title $title, $parserOutput ) {
 		$linksUpdate = new LinksUpdate( $title, $parserOutput );
 		$linksUpdate->doUpdate();
+
+		$this->testEnvironment->executePendingDeferredUpdates();
 	}
 
 	protected function retrieveAndLoadData( $revId = null ) {

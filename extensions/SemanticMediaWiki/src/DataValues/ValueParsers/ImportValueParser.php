@@ -2,7 +2,7 @@
 
 namespace SMW\DataValues\ValueParsers;
 
-use SMW\ControlledVocabularyImportContentFetcher;
+use SMW\DataValues\ControlledVocabularyImportContentFetcher;
 
 /**
  * @private
@@ -147,8 +147,6 @@ class ImportValueParser implements ValueParser {
 	private function doParse( $contents ) {
 
 		$list = array();
-		$uri = '';
-		$name = '';
 
 		if ( $contents === '' ) {
 			return null;
@@ -172,7 +170,7 @@ class ImportValueParser implements ValueParser {
 			}
 
 			list( $secname, $typestring ) = explode( '|', $importDefintion, 2 );
-			$list[str_replace( '_', ' ', trim( $secname ) )] = $typestring;
+			$list[trim( $secname )] = $typestring;
 		}
 
 		return array( $uri, $name, $list );

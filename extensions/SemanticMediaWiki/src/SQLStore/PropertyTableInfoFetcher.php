@@ -51,7 +51,7 @@ class PropertyTableInfoFetcher {
 	 */
 	private $fixedSpecialProperties = array(
 		// property declarations
-		'_TYPE', '_UNIT', '_CONV', '_PVAL', '_LIST', '_SERV',
+		'_TYPE', '_UNIT', '_CONV', '_PVAL', '_LIST', '_SERV', '_PREC',
 		// query statistics (very frequently used)
 		'_ASK', '_ASKDE', '_ASKSI', '_ASKFO', '_ASKST', '_ASKDU',
 		// subproperties, classes, and instances
@@ -63,7 +63,11 @@ class PropertyTableInfoFetcher {
 		// vocabulary import and URI assignments
 		'_IMPO', '_URI',
 		// Concepts
-		'_CONC'
+		'_CONC',
+		// Monolingual text
+		'_LCODE', '_TEXT',
+		// Display title of
+		'_DTITLE'
 	);
 
 	/**

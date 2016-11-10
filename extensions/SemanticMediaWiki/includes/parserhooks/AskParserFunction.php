@@ -99,16 +99,16 @@ class AskParserFunction {
 	 */
 	public function parse( array $rawParams ) {
 
-		// Counter for what? Where and for what is it used?
+		// Do we still need this?
+		// Reference found in SRF_Exhibit.php, SRF_Ploticus.php, SRF_Timeline.php, SRF_JitGraph.php
 		global $smwgIQRunningNumber;
 		$smwgIQRunningNumber++;
 
-		// Remove parser object from parameters array
-		if( isset( $rawParams[0] ) && $rawParams[0] instanceof Parser ) {
-			array_shift( $rawParams );
-		}
-
 		$this->applicationFactory = ApplicationFactory::getInstance();
+
+		$rawParams = $this->prepareRawParameters(
+			$rawParams
+		);
 
 		$result = $this->doFetchResultsForRawParameters(
 			$rawParams
@@ -116,7 +116,40 @@ class AskParserFunction {
 
 		$this->parserData->pushSemanticDataToParserOutput();
 
+		// 1.23+ add options so changes are recognized in case of:
+		// - 'userlang' will trigger a cache fragmentation by user language
+		// - 'dateformat'  will trigger a cache fragmentation by date preference
+		if ( method_exists( $this->parserData->getOutput(), 'recordOption' ) ) {
+			$this->parserData->getOutput()->recordOption( 'userlang' );
+			$this->parserData->getOutput()->recordOption( 'dateformat' );
+		}
+
 		return $result;
+	}
+
+	private function prepareRawParameters( array $rawParams ) {
+
+		// Remove parser object from parameters array
+		if( isset( $rawParams[0] ) && $rawParams[0] instanceof Parser ) {
+			array_shift( $rawParams );
+		}
+
+		// Filter invalid parameters
+		foreach ( $rawParams as $key => $value ) {
+
+			// First and marked printrequests
+			if (  $key == 0 || ( $value !== '' && $value{0} === '?' ) ) {
+				continue;
+			}
+
+			// Filter parameters that can not be split into
+			// argument=value
+			if ( strpos( $value, '=' ) === false ) {
+				unset( $rawParams[$key] );
+			}
+		}
+
+		return $rawParams;
 	}
 
 	private function doFetchResultsForRawParameters( array $rawParams ) {
@@ -128,11 +161,18 @@ class AskParserFunction {
 		$queryDuration = 0;
 		$start = microtime( true );
 
+		$contextPage = $this->parserData->getSubject();
+
 		list( $this->query, $this->params ) = SMWQueryProcessor::getQueryAndParamsFromFunctionParams(
 			$rawParams,
 			SMW_OUTPUT_WIKI,
 			SMWQueryProcessor::INLINE_QUERY,
-			$this->showMode
+			$this->showMode,
+			$contextPage
+		);
+
+		$this->query->setContextPage(
+			$contextPage
 		);
 
 		$queryHash = $this->query->getHash();
@@ -153,11 +193,15 @@ class AskParserFunction {
 			SMWQueryProcessor::INLINE_QUERY
 		);
 
-		// FIXME Should be injected
-		// A printer run its own isolated wgParser process therefore if the printer
-		// or a template inclusion is used by a printer, possible extra annotations
-		// need to be imported for further usage
-		$this->parserData->importFromParserOutput( $GLOBALS['wgParser']->getOutput() );
+		$format = $this->params['format']->getValue();
+
+		// FIXME Parser should be injected into the ResultPrinter
+		// Enables specific formats to import its annotation data from
+		// a recursive parse process in the result format
+		// e.g. using ask query to search/set an invert property value
+		if ( isset( $this->params['import-annotation'] ) && $this->params['import-annotation']->getValue() ) {
+			$this->parserData->importFromParserOutput( $GLOBALS['wgParser']->getOutput() );
+		}
 
 		if ( $this->applicationFactory->getSettings()->get( 'smwgQueryDurationEnabled' ) ) {
 			$queryDuration = microtime( true ) - $start;
@@ -167,7 +211,7 @@ class AskParserFunction {
 
 		$this->createQueryProfile(
 			$this->query,
-			$this->params['format']->getValue(),
+			$format,
 			$queryDuration
 		);
 
@@ -176,10 +220,23 @@ class AskParserFunction {
 
 	private function createQueryProfile( $query, $format, $duration ) {
 
-		$queryProfilerFactory = $this->applicationFactory->newQueryProfilerFactory();
+		// In case of an query error add a marker to the subject for
+		// discoverability of a failed query
+		if ( $query->getErrors() !== array() ) {
+			$error = new Error( $this->parserData->getSubject() );
 
-		$jointProfileAnnotator = $queryProfilerFactory->newJointProfileAnnotator(
-			$this->parserData->getTitle(),
+			$this->parserData->getSemanticData()->addPropertyObjectValue(
+				$error->getProperty(),
+				$error->getContainerFor(
+					new DIProperty( '_ASK' ),
+					$query->getQueryString() . ' (' . implode( ' ', $query->getErrors() ) . ')'
+				)
+			);
+		}
+
+		$queryProfileAnnotatorFactory = $this->applicationFactory->newQueryProfileAnnotatorFactory();
+
+		$jointProfileAnnotator = $queryProfileAnnotatorFactory->newJointProfileAnnotator(
 			$query,
 			$format,
 			$duration

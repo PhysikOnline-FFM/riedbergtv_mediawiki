@@ -2,13 +2,11 @@
 
 namespace SMW\Tests\Integration\MediaWiki;
 
-use SMW\Tests\Utils\MwHooksHandler;
-use SMW\Tests\MwDBaseUnitTestCase;
-
-use SMW\NamespaceManager;
-
-use SMW\Settings;
 use MWNamespace;
+use SMW\NamespaceManager;
+use SMW\Settings;
+use SMW\Tests\MwDBaseUnitTestCase;
+use SMW\Tests\Utils\MwHooksHandler;
 
 /**
  *
@@ -64,7 +62,9 @@ class NamespaceRegistrationDBIntegrationTest extends MwDBaseUnitTestCase {
 			->method( 'isDefinedConstant' )
 			->will( $this->returnValue( false ) );
 
-		$this->assertTrue( $instance->run() );
+		$this->assertTrue(
+			$instance->init()
+		);
 	}
 
 	public function testCanonicalNames() {

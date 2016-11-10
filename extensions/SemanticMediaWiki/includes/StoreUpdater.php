@@ -2,9 +2,9 @@
 
 namespace SMW;
 
-use WikiPage;
 use Title;
 use User;
+use WikiPage;
 
 /**
  * Initiates an update of the Store
@@ -122,7 +122,8 @@ class StoreUpdater {
 		$revision = $wikiPage->getRevision();
 
 		$this->updateSemanticData( $title, $wikiPage, $revision );
-		$this->doRealUpdate( $this->inspectPropertySpecification() );
+		$this->inspectPropertySpecification();
+		$this->doRealUpdate();
 
 		return true;
 	}
@@ -159,30 +160,96 @@ class StoreUpdater {
 			return;
 		}
 
-		$propertySpecDiffFinder = new PropertySpecDiffFinder( $this->store, $this->semanticData );
+		$propertySpecificationChangeNotifier = new PropertySpecificationChangeNotifier(
+			$this->store,
+			$this->semanticData
+		);
 
-		$propertySpecDiffFinder->setPropertiesToCompare(
+		$propertySpecificationChangeNotifier->setPropertiesToCompare(
 			$this->applicationFactory->getSettings()->get( 'smwgDeclarationProperties' )
 		);
 
-		$propertySpecDiffFinder->findDiff();
+		$propertySpecificationChangeNotifier->compareForListedSpecification();
 	}
 
 	private function doRealUpdate() {
 
 		$this->store->setUpdateJobsEnabledState( $this->updateJobsEnabledState );
 
+		$semanticData = $this->checkForRequiredRedirectUpdate(
+			$this->semanticData
+		);
+
+		$subject = $semanticData->getSubject();
+
 		if ( $this->processSemantics ) {
-			$this->store->updateData( $this->semanticData );
-		} else {
-			$this->store->clearData( $this->semanticData->getSubject() );
+			$this->store->updateData( $semanticData );
+		} elseif ( $this->store->getObjectIds()->hasIDFor( $subject ) ) {
+			// Only clear the data where it is know that "hasIDFor" is true otherwise
+			// an empty entity is created and later being removed by the
+			// "PropertyTableOutdatedReferenceDisposer" since it is an entity that is
+			// empty == has no reference
+			$this->store->clearData( $subject );
 		}
 
 		return true;
 	}
 
-	private function isSemanticEnabledNamespace( $title ) {
+	private function isSemanticEnabledNamespace( Title $title ) {
 		return $this->applicationFactory->getNamespaceExaminer()->isSemanticEnabled( $title->getNamespace() );
+	}
+
+	private function checkForRequiredRedirectUpdate( SemanticData $semanticData ) {
+
+		// Check only during online-mode so that when a user operates Special:MovePage
+		// or #redirect the same process is applied
+		if ( !$this->updateJobsEnabledState ) {
+			return $semanticData;
+		}
+
+		$redirects = $semanticData->getPropertyValues(
+			new DIProperty( '_REDI' )
+		);
+
+		if ( $redirects !== array() && !$semanticData->getSubject()->equals( end( $redirects ) ) ) {
+			return $this->handleYetUnknownRedirectTarget( $semanticData, end( $redirects ) );
+		}
+
+		return $semanticData;
+	}
+
+	private function handleYetUnknownRedirectTarget( SemanticData $semanticData, DIWikiPage $target ) {
+
+		// Only keep the reference to safeguard that even in case of a text keeping
+		// its annotations there are removed from the Store. A redirect is not
+		// expected to contain any other annotation other than that of the redirect
+		// target
+		$subject = $semanticData->getSubject();
+		$semanticData = new SemanticData( $subject );
+
+		$semanticData->addPropertyObjectValue(
+			new DIProperty( '_REDI' ),
+			$target
+		);
+
+		// Force a manual changeTitle before the general update otherwise
+		// #redirect can cause an inconsistent data container as observed in #895
+		$this->store->changeTitle(
+			$subject->getTitle(),
+			$target->getTitle(),
+			$subject->getTitle()->getArticleID(),
+			$target->getTitle()->getArticleID()
+		);
+
+		$dispatchContext = EventHandler::getInstance()->newDispatchContext();
+		$dispatchContext->set( 'title', $subject->getTitle() );
+
+		EventHandler::getInstance()->getEventDispatcher()->dispatch(
+			'factbox.cache.delete',
+			$dispatchContext
+		);
+
+		return $semanticData;
 	}
 
 }

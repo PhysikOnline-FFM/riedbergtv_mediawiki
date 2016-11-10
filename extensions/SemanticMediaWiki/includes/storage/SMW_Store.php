@@ -2,7 +2,6 @@
 
 namespace SMW;
 
-use HTMLFileCache;
 use SMWDataItem;
 use SMWQuery;
 use SMWQueryResult;
@@ -32,16 +31,6 @@ use Title;
 abstract class Store {
 
 	/**
-	 * FIXME THIS SHOULD NOT BE STATIC
-	 *
-	 * getPropertyTables is used all over the Store in a static manner
-	 * but its needs needs access to the configuration therefore once
-	 * all static calls are removed, turn this into a normal protected
-	 * variable
-	 */
-	protected static $configuration = null;
-
-	/**
 	 * @var boolean
 	 */
 	private $updateJobsEnabledState = true;
@@ -50,11 +39,6 @@ abstract class Store {
 	 * @var ConnectionManager
 	 */
 	protected $connectionManager = null;
-
-	/**
-	 * @var Logger
-	 */
-	protected $logger = null;
 
 ///// Reading methods /////
 
@@ -147,6 +131,27 @@ abstract class Store {
 	}
 
 	/**
+	 * Convenience method to find last modified MW timestamp for a subject that
+	 * has been added using the storage-engine.
+	 *
+	 * @since 2.3
+	 *
+	 * @param DIWikiPage $wikiPage
+	 *
+	 * @return integer
+	 */
+	public function getWikiPageLastModifiedTimestamp( DIWikiPage $wikiPage ) {
+
+		$dataItems = $this->getPropertyValues( $wikiPage, new DIProperty( '_MDAT' ) );
+
+		if ( $dataItems !== array() ) {
+			return end( $dataItems )->getMwTimestamp( TS_MW );
+		}
+
+		return 0;
+	}
+
+	/**
 	 * Convenience method to find the redirect target of a DIWikiPage
 	 * or DIProperty object. Returns a dataitem of the same type that
 	 * the input redirects to, or the input itself if there is no redirect.
@@ -166,16 +171,29 @@ abstract class Store {
 			throw new InvalidArgumentException( 'SMWStore::getRedirectTarget() expects an object of type IProperty or SMWDIWikiPage.' );
 		}
 
-		$redirectDataItems = $this->getPropertyValues( $wikipage, new DIProperty( '_REDI' ) );
-		if ( count( $redirectDataItems ) > 0 ) {
-			if ( $dataItem->getDIType() == SMWDataItem::TYPE_PROPERTY ) {
-				return new DIProperty( end( $redirectDataItems )->getDBkey() );
-			} else {
-				return end( $redirectDataItems );
-			}
-		} else {
-			return $dataItem;
+		$hash = $wikipage->getHash();
+		$poolCache = InMemoryPoolCache::getInstance()->getPoolCacheFor( 'store.redirectTarget.lookup' );
+
+		if ( $poolCache->contains( $hash ) ) {
+			return $poolCache->fetch( $hash );
 		}
+
+		$redirectDataItems = $this->getPropertyValues( $wikipage, new DIProperty( '_REDI' ) );
+
+		if ( count( $redirectDataItems ) > 0 ) {
+
+			$redirectDataItem = end( $redirectDataItems );
+
+			if ( $dataItem->getDIType() == SMWDataItem::TYPE_PROPERTY && $redirectDataItem instanceof DIWikiPage ) {
+				$dataItem = DIProperty::newFromUserLabel( $redirectDataItem->getDBkey() );
+			} else {
+				$dataItem = $redirectDataItem;
+			}
+
+			$poolCache->save( $hash, $dataItem );
+		}
+
+		return $dataItem;
 	}
 
 ///// Writing methods /////
@@ -207,26 +225,37 @@ abstract class Store {
 	 * @param SemanticData $semanticData
 	 */
 	public function updateData( SemanticData $semanticData ) {
+
+		if ( !ApplicationFactory::getInstance()->getSettings()->get( 'smwgSemanticsEnabled' ) ) {
+			return;
+		}
+
+		$subject = $semanticData->getSubject();
+
+		$dispatchContext = EventHandler::getInstance()->newDispatchContext();
+		$dispatchContext->set( 'subject', $subject );
+
+		EventHandler::getInstance()->getEventDispatcher()->dispatch(
+			'on.before.semanticdata.update.complete',
+			$dispatchContext
+		);
+
 		/**
 		 * @since 1.6
 		 */
-		wfRunHooks( 'SMWStore::updateDataBefore', array( $this, $semanticData ) );
-
-		// Invalidate the page, so data stored on it gets displayed immediately in queries.
-		$pageUpdater = ApplicationFactory::getInstance()->newMwCollaboratorFactory()->newPageUpdater();
-
-		if ( $GLOBALS['smwgAutoRefreshSubject'] && $pageUpdater->canUpdate() ) {
-			$pageUpdater->addPage( $semanticData->getSubject()->getTitle() );
-			$pageUpdater->doPurgeParserCache();
-			$pageUpdater->doPurgeHtmlCache();
-		}
+		\Hooks::run( 'SMWStore::updateDataBefore', array( $this, $semanticData ) );
 
 		$this->doDataUpdate( $semanticData );
 
 		/**
 		 * @since 1.6
 		 */
-		wfRunHooks( 'SMWStore::updateDataAfter', array( $this, $semanticData ) );
+		\Hooks::run( 'SMWStore::updateDataAfter', array( $this, $semanticData ) );
+
+		EventHandler::getInstance()->getEventDispatcher()->dispatch(
+			'on.after.semanticdata.update.complete',
+			$dispatchContext
+		);
 	}
 
 	/**
@@ -417,7 +446,7 @@ abstract class Store {
 	 */
 	public static function setupStore( $verbose = true ) {
 		$result = StoreFactory::getStore()->setup( $verbose );
-		wfRunHooks( 'smwInitializeTables' );
+		\Hooks::run( 'smwInitializeTables' );
 		return $result;
 	}
 
@@ -435,17 +464,11 @@ abstract class Store {
 	}
 
 	/**
-	 * @since 1.9.1.1
-	 */
-	public function setConfiguration( Settings $configuration ) {
-		self::$configuration = $configuration;
-	}
-
-	/**
 	 * @since 2.0
 	 */
 	public function clear() {
 		$this->connectionManager->releaseConnections();
+		InMemoryPoolCache::getInstance()->resetPoolCacheFor( 'store.redirectTarget.lookup' );
 	}
 
 	/**
@@ -492,29 +515,6 @@ abstract class Store {
 		}
 
 		return $this->connectionManager->getConnection( $connectionTypeId );
-	}
-
-	/**
-	 * @since 2.1
-	 *
-	 * @return Logger
-	 */
-	public function getLogger() {
-
-		if ( $this->logger === null ) {
-			$this->setLogger( new NullLogger() );
-		}
-
-		return $this->logger;
-	}
-
-	/**
-	 * @since 2.1
-	 *
-	 * @param Logger $logger
-	 */
-	public function setLogger( Logger $logger ) {
-		$this->logger = $logger;
 	}
 
 }

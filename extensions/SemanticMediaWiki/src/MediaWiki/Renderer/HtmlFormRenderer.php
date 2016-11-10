@@ -2,8 +2,8 @@
 
 namespace SMW\MediaWiki\Renderer;
 
-use SMW\MediaWiki\MessageBuilder;
 use Html;
+use SMW\MediaWiki\MessageBuilder;
 use Title;
 use Xml;
 
@@ -66,7 +66,7 @@ class HtmlFormRenderer {
 	private $actionUrl = false;
 
 	/**
-	 * @var string
+	 * @var string[]
 	 */
 	private $content = array();
 
@@ -275,7 +275,7 @@ class HtmlFormRenderer {
 	 *
 	 * @return HtmlFormRenderer
 	 */
-	public function addInputField( $label, $inputName, $inputValue, $id = null, $length = 20, $placeholder = '' ) {
+	public function addInputField( $label, $inputName, $inputValue, $id = null, $length = 20, $placeholder = '', $disabled = false ) {
 
 		if ( $id === null ) {
 			$id = $inputName;
@@ -283,13 +283,22 @@ class HtmlFormRenderer {
 
 		$this->addQueryParameter( $inputName, $inputValue );
 
+		$attributes = array(
+			'class' => $this->defaultPrefix . '-input',
+			'placeholder' => $placeholder
+		);
+
+		if ( $disabled ) {
+			$attributes['disabled'] = true;
+		}
+
 		$this->content[] = Xml::inputLabel(
 			$label,
 			$inputName,
 			$id,
 			$length,
 			$inputValue,
-			array( 'class' => $this->defaultPrefix . '-input', 'placeholder' => $placeholder )
+			$attributes
 		);
 
 		return $this;

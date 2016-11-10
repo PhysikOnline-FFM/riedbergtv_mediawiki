@@ -2,17 +2,12 @@
 
 namespace SMW\Tests\Integration\MediaWiki\Hooks;
 
-use SMW\Tests\Utils\UtilityFactory;
-
 use SMW\ApplicationFactory;
-
+use SMW\Tests\Utils\UtilityFactory;
 use Title;
 
 /**
- * @group SMW
- * @group SMWExtension
- * @group semantic-mediawiki-integration
- * @group mediawiki-databaseless
+ * @group semantic-mediawiki
  * @group medium
  *
  * @license GNU GPL v2+
@@ -36,7 +31,7 @@ class ParserAfterTidyIntegrationTest extends \PHPUnit_Framework_TestCase {
 
 		$this->mwHooksHandler->register(
 			'ParserAfterTidy',
-			$this->mwHooksHandler->getHookRegistry()->getDefinition( 'ParserAfterTidy' )
+			$this->mwHooksHandler->getHookRegistry()->getHandlerFor( 'ParserAfterTidy' )
 		);
 	}
 

@@ -4,11 +4,10 @@ if ( PHP_SAPI !== 'cli' ) {
 	die( 'Not an entry point' );
 }
 
-$autoloader = require __DIR__ . '/autoloader.php';
+error_reporting( -1 );
+ini_set( 'display_errors', '1' );
 
-// @codingStandardsIgnoreStart phpcs, ignore --sniffs=Generic.Files.LineLength.MaxExceeded
-print ( "SemanticMediaWiki " . SMW_VERSION . " ({$GLOBALS['smwgDefaultStore']} / {$GLOBALS['wgDBtype']}" . ( strpos( $GLOBALS['smwgDefaultStore'], 'SQL' ) ? '' : ' / ' . $GLOBALS['smwgSparqlDatabaseConnector'] ) . ") ...\n\n" );
-// @codingStandardsIgnoreEnd
+$autoloader = require __DIR__ . '/autoloader.php';
 
 $autoloader->addPsr4( 'SMW\\Test\\', __DIR__ . '/phpunit' );
 $autoloader->addPsr4( 'SMW\\Tests\\', __DIR__ . '/phpunit' );

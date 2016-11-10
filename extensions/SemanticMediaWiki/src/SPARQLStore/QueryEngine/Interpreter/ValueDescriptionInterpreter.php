@@ -2,7 +2,6 @@
 
 namespace SMW\SPARQLStore\QueryEngine\Interpreter;
 
-use SMW\DIProperty;
 use SMW\DIWikiPage;
 use SMW\Query\Language\Description;
 use SMW\Query\Language\ValueDescription;
@@ -13,6 +12,7 @@ use SMW\SPARQLStore\QueryEngine\Condition\SingletonCondition;
 use SMW\SPARQLStore\QueryEngine\DescriptionInterpreter;
 use SMWDIBlob as DIBlob;
 use SMWDIUri as DIUri;
+use SMWExpElement as ExpElement;
 use SMWExpNsResource as ExpNsResource;
 use SMWExporter as Exporter;
 use SMWTurtleSerializer as TurtleSerializer;
@@ -66,6 +66,7 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 		$orderByProperty = $this->compoundConditionBuilder->getOrderByProperty();
 
 		$dataItem = $description->getDataItem();
+		$property = $description->getProperty();
 
 		switch ( $description->getComparator() ) {
 			case SMW_CMP_EQ:   $comparator = '=';
@@ -90,12 +91,12 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 		if ( $comparator === '' ) {
 			return $this->createConditionForEmptyComparator( $joinVariable, $orderByProperty );
 		} elseif ( $comparator == '=' ) {
-			return $this->createConditionForEqualityComparator( $dataItem, $joinVariable, $orderByProperty );
+			return $this->createConditionForEqualityComparator( $dataItem, $property, $joinVariable, $orderByProperty );
 		} elseif ( $comparator == 'regex' || $comparator == '!regex' ) {
 			return $this->createConditionForRegexComparator( $dataItem, $joinVariable, $orderByProperty, $comparator );
 		}
 
-		return $this->createConditionForAnyOtherComparator(
+		return $this->createFilterConditionForAnyOtherComparator(
 			$dataItem,
 			$joinVariable,
 			$orderByProperty,
@@ -107,7 +108,7 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 		return $this->compoundConditionBuilder->newTrueCondition( $joinVariable, $orderByProperty );
 	}
 
-	private function createConditionForEqualityComparator( $dataItem, $joinVariable, $orderByProperty ) {
+	private function createConditionForEqualityComparator( $dataItem, $property, $joinVariable, $orderByProperty ) {
 
 		$expElement = $this->exporter->getDataItemHelperExpElement( $dataItem );
 
@@ -115,20 +116,41 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 			$expElement = $this->exporter->getDataItemExpElement( $dataItem );
 		}
 
-		if ( $expElement === null ) {
+		if ( $expElement === null || !$expElement instanceof ExpElement ) {
 			return new FalseCondition();
 		}
 
-		$result = new SingletonCondition( $expElement );
+		$condition = new SingletonCondition( $expElement );
+
+		$redirectByVariable = $this->compoundConditionBuilder->tryToFindRedirectVariableForDataItem(
+			$dataItem
+		);
+
+		// If it is a standalone value (e.g [[:Foo]] with no property) construct a
+		// filter condition otherwise just assign the variable and the succeeding
+		// process the ensure the replacement
+		if ( $redirectByVariable !== null && $property === null ) {
+
+			$condition = $this->createFilterConditionForAnyOtherComparator(
+				$dataItem,
+				$joinVariable,
+				$orderByProperty,
+				'='
+			);
+
+			$condition->filter = "?$joinVariable = $redirectByVariable";
+		} elseif ( $redirectByVariable !== null ) {
+			$condition->matchElement = $redirectByVariable;
+		}
 
 		$this->compoundConditionBuilder->addOrderByDataForProperty(
-			$result,
+			$condition,
 			$joinVariable,
 			$orderByProperty,
 			$dataItem->getDIType()
 		);
 
-		return $result;
+		return $condition;
 	}
 
 	private function createConditionForRegexComparator( $dataItem, $joinVariable, $orderByProperty, $comparator ) {
@@ -156,6 +178,14 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 			$pattern
 		);
 
+		$redirectByVariable = $this->compoundConditionBuilder->tryToFindRedirectVariableForDataItem(
+			$dataItem
+		);
+
+		if ( $redirectByVariable !== null ) {
+			$condition->matchElement = $redirectByVariable;
+		}
+
 		$this->compoundConditionBuilder->addOrderByDataForProperty(
 			$condition,
 			$joinVariable,
@@ -166,7 +196,7 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 		return $condition;
 	}
 
-	private function createConditionForAnyOtherComparator( $dataItem, $joinVariable, $orderByProperty, $comparator ) {
+	private function createFilterConditionForAnyOtherComparator( $dataItem, $joinVariable, $orderByProperty, $comparator ) {
 
 		$result = new FilterCondition( '', array() );
 
@@ -179,7 +209,7 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 		$orderByVariable = $result->orderByVariable;
 
 		if ( $dataItem instanceof DIWikiPage ) {
-			$expElement = $this->exporter->getDataItemExpElement( $dataItem->getSortKeyDataItem() );
+			$expElement = $this->exporter->getDataItemExpElement( new DIBlob( $dataItem->getSortKey() ) );
 		} else {
 			$expElement = $this->exporter->getDataItemHelperExpElement( $dataItem );
 			if ( is_null( $expElement ) ) {

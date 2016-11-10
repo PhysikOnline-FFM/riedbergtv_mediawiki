@@ -5,9 +5,9 @@ namespace SMW\SQLStore\QueryEngine\Interpreter;
 use SMW\DIWikiPage;
 use SMW\Query\Language\Description;
 use SMW\Query\Language\ValueDescription;
-use SMW\SQLStore\QueryEngine\QueryBuilder;
 use SMW\SQLStore\QueryEngine\DescriptionInterpreter;
 use SMW\SQLStore\QueryEngine\QuerySegment;
+use SMW\SQLStore\QueryEngine\QuerySegmentListBuilder;
 use SMWSql3SmwIds;
 
 /**
@@ -21,9 +21,9 @@ use SMWSql3SmwIds;
 class ValueDescriptionInterpreter implements DescriptionInterpreter {
 
 	/**
-	 * @var QueryBuilder
+	 * @var QuerySegmentListBuilder
 	 */
-	private $queryBuilder;
+	private $querySegmentListBuilder;
 
 	/**
 	 * @var ComparatorMapper
@@ -33,10 +33,10 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 	/**
 	 * @since 2.2
 	 *
-	 * @param QueryBuilder $queryBuilder
+	 * @param QuerySegmentListBuilder $querySegmentListBuilder
 	 */
-	public function __construct( QueryBuilder $queryBuilder ) {
-		$this->queryBuilder = $queryBuilder;
+	public function __construct( QuerySegmentListBuilder $querySegmentListBuilder ) {
+		$this->querySegmentListBuilder = $querySegmentListBuilder;
 		$this->comparatorMapper = new ComparatorMapper();
 	}
 
@@ -69,7 +69,7 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 		if ( $description->getComparator() === SMW_CMP_EQ ) {
 			$query->type = QuerySegment::Q_VALUE;
 
-			$oid = $this->queryBuilder->getStore()->getObjectIds()->getSMWPageID(
+			$oid = $this->querySegmentListBuilder->getStore()->getObjectIds()->getSMWPageID(
 				$description->getDataItem()->getDBkey(),
 				$description->getDataItem()->getNamespace(),
 				$description->getDataItem()->getInterwiki(),
@@ -78,7 +78,7 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 
 			$query->joinfield = array( $oid );
 		} else { // Join with SMW IDs table needed for other comparators (apply to title string).
-			$query->joinTable = SMWSql3SmwIds::tableName;
+			$query->joinTable = SMWSql3SmwIds::TABLE_NAME;
 			$query->joinfield = "{$query->alias}.smw_id";
 			$value = $description->getDataItem()->getSortKey();
 
@@ -87,7 +87,9 @@ class ValueDescriptionInterpreter implements DescriptionInterpreter {
 				$value
 			);
 
-			$query->where = "{$query->alias}.smw_sortkey$comparator" . $this->queryBuilder->getStore()->getConnection( 'mw.db' )->addQuotes( $value );
+			$db = $this->querySegmentListBuilder->getStore()->getConnection( 'mw.db.queryengine' );
+
+			$query->where = "{$query->alias}.smw_sortkey$comparator" . $db->addQuotes( $value );
 		}
 
 		return $query;

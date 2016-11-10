@@ -2,14 +2,12 @@
 
 namespace SMW\Tests\Integration;
 
+use SMW\DataValueFactory;
 use SMW\Tests\MwDBaseUnitTestCase;
 use SMW\Tests\Utils\UtilityFactory;
-
-use SMW\DataValueFactory;
-
-use SMWQueryProcessor  as QueryProcessor;
 use SMWQuery as Query;
 use SMWQueryParser as QueryParser;
+use SMWQueryProcessor as QueryProcessor;
 
 /**
  * @covers \SMWQueryResult
@@ -69,14 +67,14 @@ class QueryResultQueryProcessorIntegrationTest extends MwDBaseUnitTestCase {
 		$semanticData = $this->semanticDataFactory->newEmptySemanticData( __METHOD__ );
 		$this->subjects[] = $semanticData->getSubject();
 
-		$dataValue = $this->dataValueFactory->newPropertyObjectValue(
+		$dataValue = $this->dataValueFactory->newDataValueByProperty(
 			$property,
 			'http://example.org/api.php?action=Foo'
 		);
 
 		$semanticData->addDataValue( $dataValue );
 
-		$dataValue = $this->dataValueFactory->newPropertyObjectValue(
+		$dataValue = $this->dataValueFactory->newDataValueByProperty(
 			$property,
 			'http://example.org/Bar 42'
 		);
@@ -167,13 +165,17 @@ class QueryResultQueryProcessorIntegrationTest extends MwDBaseUnitTestCase {
 					'label'=> '',
 					'typeid' => '_wpg',
 					'mode' => 2,
-					'format' => false
+					'format' => false,
+					'key' => '',
+					'redi' => ''
 				),
 				array(
 					'label'=> 'Modification date',
 					'typeid' => '_dat',
 					'mode' => 1,
-					'format' => ''
+					'format' => '',
+					'key' => '_MDAT',
+					'redi' => ''
 				)
 			)
 		);
@@ -191,13 +193,17 @@ class QueryResultQueryProcessorIntegrationTest extends MwDBaseUnitTestCase {
 					'label'=> '',
 					'typeid' => '_wpg',
 					'mode' => 2,
-					'format' => false
+					'format' => false,
+					'key' => '',
+					'redi' => ''
 				),
 				array(
 					'label'=> 'Modification date',
 					'typeid' => '_dat',
 					'mode' => 1,
-					'format' => 'ISO'
+					'format' => 'ISO',
+					'key' => '_MDAT',
+					'redi' => ''
 				)
 			)
 		);

@@ -1,11 +1,12 @@
 <?php
 
-use SMW\SQLStore\PropertyStatisticsTable;
-use SMW\SQLStore\DataItemByIdFinder;
-use SMW\SQLStore\RedirectInfoStore;
-use SMW\HashBuilder;
-use SMW\DIWikiPage;
 use SMW\ApplicationFactory;
+use SMW\DIProperty;
+use SMW\DIWikiPage;
+use SMW\HashBuilder;
+use SMW\SQLStore\IdToDataItemMatchFinder;
+use SMW\SQLStore\PropertyStatisticsTable;
+use SMW\SQLStore\RedirectInfoStore;
 
 /**
  * @ingroup SMWStore
@@ -52,12 +53,20 @@ use SMW\ApplicationFactory;
 class SMWSql3SmwIds {
 
 	/**
+	 * Specifies the border limit for pre-defined properties declared
+	 * in SMWSql3SmwIds::special_ids
+	 */
+	const FXD_PROP_BORDER_ID = SMWSQLStore3::FIXED_PROPERTY_ID_UPPERBOUND;
+
+	/**
 	 * Name of the table to store IDs in.
 	 *
 	 * @note This should never change. Existing wikis will have to drop and
 	 * rebuild their SMW tables completely to recover from any change here.
 	 */
-	const tableName = 'smw_object_ids';
+	const TABLE_NAME = SMWSQLStore3::ID_TABLE;
+
+	const POOLCACHE_ID = 'sql.store.id.cache';
 
 	/**
 	 * Id for which property table hashes are cached, if any.
@@ -121,9 +130,9 @@ class SMWSql3SmwIds {
 	protected $prop_ids = array();
 
 	/**
-	 * @var DataItemByIdFinder
+	 * @var IdToDataItemMatchFinder
 	 */
-	private $dataItemByIdFinder;
+	private $idToDataItemMatchFinder;
 
 	/**
 	 * @var RedirectInfoStore
@@ -170,10 +179,13 @@ class SMWSql3SmwIds {
 		'_INST' => 4,
 		'_UNIT' => 7,
 		'_IMPO' => 8,
+		'_PDESC' => 10,
+		'_PREC' => 11,
 		'_CONV' => 12,
 		'_SERV' => 13,
 		'_PVAL' => 14,
 		'_REDI' => 15,
+		'_DTITLE' => 16,
 		'_SUBP' => 17,
 		'_SUBC' => 18,
 		'_CONC' => 19,
@@ -185,6 +197,7 @@ class SMWSql3SmwIds {
 // 		'_3' => 25,
 // 		'_4' => 26,
 // 		'_5' => 27,
+// 		'_SOBJ' => 27
 		'_LIST' => 28,
 		'_MDAT' => 29,
 		'_CDAT' => 30,
@@ -197,7 +210,8 @@ class SMWSql3SmwIds {
 		'_ASKSI' =>  36,
 		'_ASKDE' =>  37,
 //		'_ASKDU' =>  38,
-//		'_ASKID' =>  39
+		'_LCODE' =>  40,
+		'_TEXT'  =>  41,
 	);
 
 	/**
@@ -211,16 +225,15 @@ class SMWSql3SmwIds {
 		// Yes, this is a hack, but we only use it for convenient debugging:
 		self::$singleton_debug = $this;
 
-		$this->dataItemByIdFinder = new DataItemByIdFinder(
-			$this->store->getConnection( 'mw.db' ),
-			self::tableName,
-			ApplicationFactory::getInstance()->newCacheFactory()->newFixedInMemoryCache()
+		$this->idToDataItemMatchFinder = new IdToDataItemMatchFinder(
+			$this->store->getConnection( 'mw.db' )
 		);
 
 		$this->redirectInfoStore = new RedirectInfoStore(
-			$this->store->getConnection( 'mw.db' ),
-			ApplicationFactory::getInstance()->newCacheFactory()->newFixedInMemoryCache()
+			$this->store->getConnection( 'mw.db' )
 		);
+
+		$this->intermediaryIdCache = ApplicationFactory::getInstance()->getInMemoryPoolCache()->getPoolCacheFor( self::POOLCACHE_ID );
 	}
 
 	/**
@@ -264,7 +277,7 @@ class SMWSql3SmwIds {
 	 * @param integer $namespace
 	 */
 	public function addRedirectForId( $id, $title, $namespace ) {
-		return $this->redirectInfoStore->addRedirectForId( $id, $title, $namespace );
+		$this->redirectInfoStore->addRedirectForId( $id, $title, $namespace );
 	}
 
 	/**
@@ -276,7 +289,7 @@ class SMWSql3SmwIds {
 	 * @param integer $namespace
 	 */
 	public function deleteRedirectEntry( $title, $namespace ) {
-		return $this->redirectInfoStore->deleteRedirectEntry( $title, $namespace );
+		$this->redirectInfoStore->deleteRedirectEntry( $title, $namespace );
 	}
 
 	/**
@@ -307,9 +320,9 @@ class SMWSql3SmwIds {
 	public function getSMWPageIDandSort( $title, $namespace, $iw, $subobjectName, &$sortkey, $canonical, $fetchHashes = false ) {
 		$id = $this->getPredefinedData( $title, $namespace, $iw, $subobjectName, $sortkey );
 		if ( $id != 0 ) {
-			return $id;
+			return (int)$id;
 		} else {
-			return $this->getDatabaseIdAndSort( $title, $namespace, $iw, $subobjectName, $sortkey, $canonical, $fetchHashes );
+			return (int)$this->getDatabaseIdAndSort( $title, $namespace, $iw, $subobjectName, $sortkey, $canonical, $fetchHashes );
 		}
 	}
 
@@ -336,12 +349,21 @@ class SMWSql3SmwIds {
 
 		$db = $this->store->getConnection();
 
-		$id = $this->getCachedId(
-			$title,
-			$namespace,
-			$iw,
-			$subobjectName
-		);
+		// Integration test "query-04-02-subproperty-dc-import-marc21.json"
+		// showed a deterministic failure (due to a wrong cache id during querying
+		// for redirects) hence we force to read directly from the RedirectInfoStore
+		// for objects marked as redirect
+		if ( $iw === SMW_SQL3_SMWREDIIW && $canonical &&
+			$smwgQEqualitySupport !== SMW_EQ_NONE && $subobjectName === '' ) {
+			$id = $this->findRedirectIdFor( $title, $namespace );
+		} else {
+			$id = $this->getCachedId(
+				$title,
+				$namespace,
+				$iw,
+				$subobjectName
+			);
+		}
 
 		if ( $id !== false ) { // cache hit
 			$sortkey = $this->getCachedSortKey( $title, $namespace, $iw, $subobjectName );
@@ -357,7 +379,7 @@ class SMWSql3SmwIds {
 				}
 
 				$row = $db->selectRow(
-					self::tableName,
+					self::TABLE_NAME,
 					$select,
 					array( 'smw_id' => $id ),
 					__METHOD__
@@ -384,7 +406,7 @@ class SMWSql3SmwIds {
 			}
 
 			$row = $db->selectRow(
-				self::tableName,
+				self::TABLE_NAME,
 				$select,
 				array(
 					'smw_title' => $title,
@@ -434,6 +456,115 @@ class SMWSql3SmwIds {
 	}
 
 	/**
+	 * @since 2.3
+	 *
+	 * @param string $title DB key
+	 * @param integer $namespace namespace
+	 * @param string $iw interwiki prefix
+	 * @param string $subobjectName name of subobject
+	 *
+	 * @param array
+	 */
+	public function getListOfIdMatchesFor( $title, $namespace, $iw, $subobjectName = '' ) {
+
+		$matches = array();
+
+		$rows = $this->store->getConnection( 'mw.db' )->select(
+			self::TABLE_NAME,
+			$select = array( 'smw_id' ),
+			array(
+				'smw_title' => $title,
+				'smw_namespace' => $namespace,
+				'smw_iw' => $iw,
+				'smw_subobject' => $subobjectName
+			),
+			__METHOD__
+		);
+
+		if ( $rows === false ) {
+			return $matches;
+		}
+
+		foreach ( $rows as $row ) {
+			$matches[] = $row->smw_id;
+		}
+
+		return $matches;
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param DIWikiPage $subject
+	 *
+	 * @param boolean
+	 */
+	public function hasIDFor( DIWikiPage $subject ) {
+		return $this->getIDFor( $subject ) > 0;
+	}
+
+	/**
+	 * @note SMWSql3SmwIds::getSMWPageID has some issues with the cache as it returned
+	 * 0 even though an object was matchable but since I'm too busy to investigate, using
+	 * this method is safer then trying to encipher getSMWPageID related methods.
+	 *
+	 * It uses the PoolCache which means Lru is in place to avoid memory leakage.
+	 *
+	 * @since 2.4
+	 *
+	 * @param DIWikiPage $subject
+	 *
+	 * @param integer
+	 */
+	public function getIDFor( DIWikiPage $subject ) {
+
+		$hash = HashBuilder::getHashIdForDiWikiPage( $subject );
+
+		if ( ( $id = $this->intermediaryIdCache->fetch( $hash ) ) > 0 ) {
+			return $id;
+		}
+
+		$row = $this->store->getConnection( 'mw.db' )->selectRow(
+			self::TABLE_NAME,
+			array( 'smw_id' ),
+			array(
+				'smw_title' => $subject->getDBKey(),
+				'smw_namespace' => $subject->getNamespace(),
+				'smw_iw' => $subject->getInterWiki(),
+				'smw_subobject' => $subject->getSubobjectName()
+			),
+			__METHOD__
+		);
+
+		// Try to match a predefined property
+		if ( $subject->getNamespace() === SMW_NS_PROPERTY && $subject->getInterWiki() === '' ) {
+			$property = DIProperty::newFromUserLabel( $subject->getDBKey() );
+
+			if ( isset( self::$special_ids[$property->getKey()] ) ) {
+				$row = new \stdClass;
+				$row->smw_id = self::$special_ids[$property->getKey()];
+			}
+		}
+
+		if ( $row === false ) {
+			wfDebugLog( 'smw', __METHOD__  . " $hash was a cache miss" );
+			return 0;
+		}
+
+		// Legacy
+		$this->setCache(
+			$subject->getDBKey(),
+			$subject->getNamespace(),
+			$subject->getInterWiki(),
+			$subject->getSubobjectName(),
+			$row->smw_id,
+			$subject->getSortKey()
+		);
+
+		return $row->smw_id;
+	}
+
+	/**
 	 * Convenience method for calling getSMWPageIDandSort without
 	 * specifying a sortkey (if not asked for).
 	 *
@@ -476,9 +607,9 @@ class SMWSql3SmwIds {
 	public function makeSMWPageID( $title, $namespace, $iw, $subobjectName, $canonical = true, $sortkey = '', $fetchHashes = false ) {
 		$id = $this->getPredefinedData( $title, $namespace, $iw, $subobjectName, $sortkey );
 		if ( $id != 0 ) {
-			return $id;
+			return (int)$id;
 		} else {
-			return $this->makeDatabaseId( $title, $namespace, $iw, $subobjectName, $canonical, $sortkey, $fetchHashes );
+			return (int)$this->makeDatabaseId( $title, $namespace, $iw, $subobjectName, $canonical, $sortkey, $fetchHashes );
 		}
 	}
 
@@ -505,14 +636,16 @@ class SMWSql3SmwIds {
 
 		$oldsort = '';
 		$id = $this->getDatabaseIdAndSort( $title, $namespace, $iw, $subobjectName, $oldsort, $canonical, $fetchHashes );
-		$db = $this->store->getConnection();
+		$db = $this->store->getConnection( 'mw.db' );
+
+		$db->beginAtomicTransaction( __METHOD__ );
 
 		if ( $id == 0 ) {
 			$sortkey = $sortkey ? $sortkey : ( str_replace( '_', ' ', $title ) );
 			$sequenceValue = $db->nextSequenceValue( $this->getIdTable() . '_smw_id_seq' ); // Bug 42659
 
 			$db->insert(
-				self::tableName,
+				self::TABLE_NAME,
 				array(
 					'smw_id' => $sequenceValue,
 					'smw_title' => $title,
@@ -524,7 +657,7 @@ class SMWSql3SmwIds {
 				__METHOD__
 			);
 
-			$id = $db->insertId();
+			$id = (int)$db->insertId();
 
 			// Properties also need to be in the property statistics table
 			if( $namespace === SMW_NS_PROPERTY ) {
@@ -545,7 +678,7 @@ class SMWSql3SmwIds {
 
 		} elseif ( $sortkey !== '' && $sortkey != $oldsort ) {
 			$db->update(
-				self::tableName,
+				self::TABLE_NAME,
 				array( 'smw_sortkey' => $sortkey ),
 				array( 'smw_id' => $id ),
 				__METHOD__
@@ -553,6 +686,8 @@ class SMWSql3SmwIds {
 
 			$this->setCache( $title, $namespace, $iw, $subobjectName, $id, $sortkey );
 		}
+
+		$db->endAtomicTransaction( __METHOD__ );
 
 		return $id;
 	}
@@ -583,12 +718,13 @@ class SMWSql3SmwIds {
 	 *
 	 * @param integer $sid
 	 * @param DIWikiPage $subject
+	 * @param integer|string|null $interWiki
 	 */
-	public function updateInterwikiField( $sid, DIWikiPage $subject ) {
+	public function updateInterwikiField( $sid, DIWikiPage $subject, $interWiki = null ) {
 
 		$this->store->getConnection()->update(
-			self::tableName,
-			array( 'smw_iw' => $subject->getInterWiki() ),
+			self::TABLE_NAME,
+			array( 'smw_iw' => $interWiki !== null ? $interWiki : $subject->getInterWiki() ),
 			array( 'smw_id' => $sid ),
 			__METHOD__
 		);
@@ -636,9 +772,9 @@ class SMWSql3SmwIds {
 	 */
 	public function makeSMWPropertyID( SMWDIProperty $property ) {
 		if ( array_key_exists( $property->getKey(), self::$special_ids ) ) {
-			return self::$special_ids[$property->getKey()];
+			return (int)self::$special_ids[$property->getKey()];
 		} else {
-			return $this->makeDatabaseId(
+			return (int)$this->makeDatabaseId(
 				$property->getKey(),
 				SMW_NS_PROPERTY,
 				$this->getPropertyInterwiki( $property ),
@@ -680,10 +816,10 @@ class SMWSql3SmwIds {
 			if ( $title{0} != '_' ) {
 				// This normalization also applies to
 				// subobjects of predefined properties.
-				$newTitle = SMWDIProperty::findPropertyID( str_replace( '_', ' ', $title ) );
+				$newTitle = SMW\DIProperty::findPropertyID( str_replace( '_', ' ', $title ) );
 				if ( $newTitle ) {
 					$title = $newTitle;
-					$sortkey = SMWDIProperty::findPropertyLabel( $title );
+					$sortkey = SMW\DIProperty::findPropertyLabel( $title );
 					if ( $sortkey === '' ) {
 						$iw = SMW_SQL3_SMWINTDEFIW;
 					}
@@ -715,7 +851,7 @@ class SMWSql3SmwIds {
 		$db = $this->store->getConnection();
 
 		$row = $db->selectRow(
-			self::tableName,
+			self::TABLE_NAME,
 			'*',
 			array( 'smw_id' => $curid ),
 			__METHOD__
@@ -725,11 +861,13 @@ class SMWSql3SmwIds {
 			return; // no id at current position, ignore
 		}
 
+		$db->beginAtomicTransaction( __METHOD__ );
+
 		if ( $targetid == 0 ) { // append new id
 			$sequenceValue = $db->nextSequenceValue( $this->getIdTable() . '_smw_id_seq' ); // Bug 42659
 
 			$db->insert(
-				self::tableName,
+				self::TABLE_NAME,
 				array(
 					'smw_id' => $sequenceValue,
 					'smw_title' => $row->smw_title,
@@ -744,7 +882,7 @@ class SMWSql3SmwIds {
 			$targetid = $db->insertId();
 		} else { // change to given id
 			$db->insert(
-				self::tableName,
+				self::TABLE_NAME,
 				array( 'smw_id' => $targetid,
 					'smw_title' => $row->smw_title,
 					'smw_namespace' => $row->smw_namespace,
@@ -757,7 +895,7 @@ class SMWSql3SmwIds {
 		}
 
 		$db->delete(
-			self::tableName,
+			self::TABLE_NAME,
 			array(
 				'smw_id' => $curid
 			),
@@ -780,6 +918,7 @@ class SMWSql3SmwIds {
 			$row->smw_namespace
 		);
 
+		$db->endAtomicTransaction( __METHOD__ );
 	}
 
 	/**
@@ -812,7 +951,8 @@ class SMWSql3SmwIds {
 			$this->regular_sortkeys[$hashKey] = $sortkey;
 		}
 
-		$this->dataItemByIdFinder->saveToCache( $id, $hashKey );
+		$this->idToDataItemMatchFinder->saveToCache( $id, $hashKey );
+		$this->intermediaryIdCache->save( $hashKey, $id );
 
 		if ( $interwiki == SMW_SQL3_SMWREDIIW ) { // speed up detection of redirects when fetching IDs
 			$this->setCache(  $title, $namespace, '', $subobject, 0, '' );
@@ -827,7 +967,18 @@ class SMWSql3SmwIds {
 	 * @return DIWikiPage|null
 	 */
 	public function getDataItemForId( $id ) {
-		return $this->dataItemByIdFinder->getDataItemForId( $id );
+		return $this->idToDataItemMatchFinder->getDataItemForId( $id );
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @param integer $id
+	 *
+	 * @return string[]
+	 */
+	public function getDataItemPoolHashListFor( array $idlist ) {
+		return $this->idToDataItemMatchFinder->getDataItemPoolHashListFor( $idlist );
 	}
 
 	/**
@@ -844,7 +995,7 @@ class SMWSql3SmwIds {
 		if ( $namespace == SMW_NS_PROPERTY && $interwiki === '' && $subobject === '' ) {
 			if ( array_key_exists( $title, $this->prop_ids ) ) {
 				$this->prophit_debug++;
-				return $this->prop_ids[$title];
+				return (int)$this->prop_ids[$title];
 			} else {
 				$this->propmiss_debug++;
 				return false;
@@ -853,7 +1004,7 @@ class SMWSql3SmwIds {
 			$hashKey = HashBuilder::createHashIdFromSegments( $title, $namespace, $interwiki, $subobject );
 			if ( array_key_exists( $hashKey, $this->regular_ids ) ) {
 				$this->reghit_debug++;
-				return $this->regular_ids[$hashKey];
+				return (int)$this->regular_ids[$hashKey];
 			} else {
 				$this->regmiss_debug++;
 				return false;
@@ -901,18 +1052,20 @@ class SMWSql3SmwIds {
 	 */
 	public function deleteCache( $title, $namespace, $interwiki, $subobject ) {
 
+		$hashKey = HashBuilder::createHashIdFromSegments( $title, $namespace, $interwiki, $subobject );
+
 		if ( $namespace == SMW_NS_PROPERTY && $interwiki === '' && $subobject === '' ) {
-			$id = $this->regular_ids[$title];
-			unset( $this->regular_ids[$title] );
-			unset( $this->regular_sortkeys[$title] );
+			$id =  isset( $this->prop_ids[$title] ) ?  $this->prop_ids[$title] : 0;
+			unset( $this->prop_ids[$title] );
+			unset( $this->prop_sortkeys[$title] );
 		} else {
-			$hashKey = HashBuilder::createHashIdFromSegments( $title, $namespace, $interwiki, $subobject );
-			$id = $this->regular_ids[$hashKey];
+			$id = isset( $this->regular_ids[$hashKey] ) ? $this->regular_ids[$hashKey] : 0;
 			unset( $this->regular_ids[$hashKey] );
 			unset( $this->regular_sortkeys[$hashKey] );
 		}
 
-		$this->dataItemByIdFinder->deleteFromCache( $id );
+		$this->intermediaryIdCache->delete( $hashKey );
+		$this->idToDataItemMatchFinder->deleteFromCache( $id );
 	}
 
 	/**
@@ -950,7 +1103,7 @@ class SMWSql3SmwIds {
 		$this->prop_sortkeys = array();
 		$this->regular_ids = array();
 		$this->regular_sortkeys = array();
-		$this->dataItemByIdFinder->clear();
+		$this->idToDataItemMatchFinder->clear();
 	}
 
 	/**
@@ -1006,7 +1159,7 @@ class SMWSql3SmwIds {
 		} elseif ( $subjectId !== 0 ) {
 
 			$row = $db->selectRow(
-				self::tableName,
+				self::TABLE_NAME,
 				array( 'smw_proptable_hash' ),
 				'smw_id=' . $subjectId,
 				__METHOD__
@@ -1036,7 +1189,7 @@ class SMWSql3SmwIds {
 		$propertyTableHash = serialize( $newTableHashes );
 
 		$db->update(
-			self::tableName,
+			self::TABLE_NAME,
 			array( 'smw_proptable_hash' => $propertyTableHash ),
 			array( 'smw_id' => $sid ),
 			__METHOD__
@@ -1110,7 +1263,7 @@ class SMWSql3SmwIds {
 	 * @return string
 	 */
 	public function getIdTable() {
-		return self::tableName;
+		return self::TABLE_NAME;
 	}
 
 }

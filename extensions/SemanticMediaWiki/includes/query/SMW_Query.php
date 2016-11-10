@@ -1,5 +1,6 @@
 <?php
 
+use SMW\DIWikiPage;
 use SMW\HashBuilder;
 use SMW\Query\PrintRequest;
 
@@ -37,7 +38,7 @@ class SMWQuery {
 
 	public $sort = false;
 	public $sortkeys = array(); // format: "Property key" => "ASC" / "DESC" (note: order of entries also matters)
-	public $querymode = SMWQuery::MODE_INSTANCES;
+	public $querymode = self::MODE_INSTANCES;
 
 	private $limit;
 	private $offset = 0;
@@ -54,6 +55,18 @@ class SMWQuery {
 	private $m_mainlabel = ''; // Since 1.6
 
 	/**
+	 * @var DIWikiPage|null
+	 */
+	private $contextPage;
+
+	/**
+	 * Describes a non-local (remote) query source
+	 *
+	 * @var string|null
+	 */
+	private $querySource = null;
+
+	/**
 	 * Constructor.
 	 * @param $description SMWDescription object describing the query conditions
 	 * @param $inline bool stating whether this query runs in an inline context; used to determine
@@ -68,6 +81,42 @@ class SMWQuery {
 		$this->isUsedInConcept = $concept;
 		$this->description = $description;
 		$this->applyRestrictions();
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @param DIWikiPage|null $contextPage
+	 */
+	public function setContextPage( DIWikiPage $contextPage = null ) {
+		$this->contextPage = $contextPage;
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @return DIWikiPage|null
+	 */
+	public function getContextPage() {
+		return $this->contextPage;
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param string
+	 */
+	public function setQuerySource( $querySource ) {
+		$this->querySource = $querySource;
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return string
+	 */
+	public function getQuerySource() {
+		return $this->querySource;
 	}
 
 	/**
@@ -94,6 +143,8 @@ class SMWQuery {
 
 	public function setDescription( SMWDescription $description ) {
 		$this->description = $description;
+		$this->queryString = false;
+
 		foreach ( $this->m_extraprintouts as $printout ) {
 			$this->description->addPrintRequest( $printout );
 		}
@@ -133,7 +184,22 @@ class SMWQuery {
 		$this->queryString = $querystring;
 	}
 
-	public function getQueryString() {
+	/**
+	 * @since 1.7
+	 *
+	 * @param  boolean $fresh
+	 *
+	 * @return string
+	 */
+	public function getQueryString( $fresh = false ) {
+
+		// Mostly relevant on requesting a further results link to
+		// ensure that localized values are transformed into a canonical
+		// representation
+		if ( $fresh && $this->description !== null ) {
+			return $this->description->getQueryString();
+		}
+
 		if ( $this->queryString !== false ) {
 			return $this->queryString;
 		} elseif ( !is_null( $this->description ) ) {
@@ -202,7 +268,7 @@ class SMWQuery {
 	 * @param array $sortKeys
 	 */
 	public function setSortKeys( array $sortKeys ) {
-		$this->sortKeys = $sortKeys;
+		$this->sortkeys = $sortKeys;
 	}
 
 	/**
@@ -211,7 +277,7 @@ class SMWQuery {
 	 * @return array
 	 */
 	public function getSortKeys() {
-		return $this->sortKeys;
+		return $this->sortkeys;
 	}
 
 	/**
@@ -270,6 +336,13 @@ class SMWQuery {
 				'querymode' => $this->querymode
 		);
 
+		// @2.4 Keep the queryID stable with previous versions unless
+		// a query source is selected. The "same" query executed on different
+		// remote systems requires a different queryID
+		if ( $this->querySource !== '' ) {
+			$serialized['parameters']['source'] = $this->querySource;
+		}
+
 		foreach ( $this->getExtraPrintouts() as $printout ) {
 			$serialization = $printout->getSerialisation();
 			if ( $serialization !== '?#' ) {
@@ -287,6 +360,15 @@ class SMWQuery {
 	 */
 	public function getHash() {
 		return HashBuilder::createHashIdForContent( $this->toArray() );
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @return string
+	 */
+	public function getQueryId() {
+		return '_QUERY' . $this->getHash();
 	}
 
 }

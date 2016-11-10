@@ -2,9 +2,10 @@
 
 namespace SMW;
 
-use SMW\Query\Language\ConceptDescription;
-
 use Html;
+use SMW\MediaWiki\ByLanguageCollationMapper;
+use SMW\Query\Language\ConceptDescription;
+use SMWDataItem as DataItem;
 use SMWPageLister;
 
 /**
@@ -46,13 +47,16 @@ class ConceptPage extends \SMWOrderedListPage {
 	 * @return string
 	 */
 	protected function getHtml() {
+		global $smwgConceptPagingLimit, $wgRequest;
 
 		if ( $this->limit > 0 ) { // limit==0: configuration setting to disable this completely
-			$store = StoreFactory::getStore();
-			$concept = $store->getConceptCacheStatus( $this->getDataItem() );
 			$description = new ConceptDescription( $this->getDataItem() );
 			$query = SMWPageLister::getQuery( $description, $this->limit, $this->from, $this->until );
-			$queryResult = $store->getQueryResult( $query );
+
+			$query->setLimit( $wgRequest->getVal( 'limit', $smwgConceptPagingLimit ) );
+			$query->setOffset( $wgRequest->getVal( 'offset', '0' ) );
+
+			$queryResult = ApplicationFactory::getInstance()->getStore()->getQueryResult( $query );
 
 			$diWikiPages = $queryResult->getResults();
 			if ( $this->until !== '' ) {
@@ -67,36 +71,75 @@ class ConceptPage extends \SMWOrderedListPage {
 
 		$pageLister = new SMWPageLister( $diWikiPages, null, $this->limit, $this->from, $this->until );
 		$this->mTitle->setFragment( '#SMWResults' ); // Make navigation point to the result list.
-		$navigation = $pageLister->getNavigationLinks( $this->mTitle );
 
 		$titleText = htmlspecialchars( $this->mTitle->getText() );
-		$resultNumber = min( $this->limit, count( $diWikiPages ) );
-
-		// Concept cache information
-		if ( $concept instanceof DIConcept && $concept->getCacheStatus() === 'full' ){
-			$cacheInformation = Html::element(
-				'span',
-				array( 'class' => 'smw-concept-cache-information' ),
-				' ' . $this->getContext()->msg(
-						'smw-concept-cache-text',
-						$this->getContext()->getLanguage()->formatNum( $concept->getCacheCount() ),
-						$this->getContext()->getLanguage()->date( $concept->getCacheDate() ),
-						$this->getContext()->getLanguage()->time( $concept->getCacheDate() )
-					)->text()
-				);
-		} else {
-			$cacheInformation = '';
-		}
-
 
 		return Html::element( 'br', array( 'id' => 'smwfootbr' ) ) .
 			Html::element( 'a', array( 'name' => 'SMWResults' ), null ) .
 			Html::rawElement( 'div', array( 'id' => 'mw-pages'),
+				$this->getCacheInformation() .
 				Html::rawElement( 'h2', array(), $this->getContext()->msg( 'smw_concept_header', $titleText )->text() ) .
-				Html::element( 'span', array(), $this->getContext()->msg( 'smw_conceptarticlecount', $resultNumber )->parse() ) .
-				smwfEncodeMessages( $errors ) . ' '. $navigation .
-				$cacheInformation .
-				$pageLister->formatList()
+				$this->getNavigationLinks( 'smw_conceptarticlecount', $diWikiPages, $smwgConceptPagingLimit ) .
+				smwfEncodeMessages( $errors ) . ' ' .
+				$this->getFormattedColumns( $diWikiPages )
 			);
 	}
+
+	private function getCacheInformation() {
+
+		$concept = ApplicationFactory::getInstance()->getStore()->getConceptCacheStatus( $this->getDataItem() );
+		$cacheInformation = wfMessage( 'smw-concept-no-cache' )->text();
+
+		if ( $concept instanceof DIConcept && $concept->getCacheStatus() === 'full' ) {
+			$cacheInformation = wfMessage(
+				'smw-concept-cache-count',
+				$this->getContext()->getLanguage()->formatNum( $concept->getCacheCount() ),
+				$this->getContext()->getLanguage()->timeanddate( $concept->getCacheDate() )
+			)->parse();
+		}
+
+		return Html::rawElement(
+			'h2',
+			array(),
+			$this->getContext()->msg( 'smw-concept-cache-header' )->text()
+		) . $cacheInformation;
+	}
+
+	private function getFormattedColumns( array $diWikiPages ) {
+
+		if ( $diWikiPages === array() ) {
+			return '';
+		}
+
+		$mwCollaboratorFactory = ApplicationFactory::getInstance()->newMwCollaboratorFactory();
+		$htmlColumnListRenderer = $mwCollaboratorFactory->newHtmlColumnListRenderer();
+
+		foreach ( $diWikiPages as $value ) {
+			$dv = DataValueFactory::getInstance()->newDataValueByItem( $value );
+			$contentsByIndex[$this->getFirstLetterForCategory( $value )][] = $dv->getLongHTMLText( smwfGetLinker() );
+		}
+
+		$htmlColumnListRenderer->setColumnRTLDirectionalityState(
+			$this->getContext()->getLanguage()->isRTL()
+		);
+
+		$htmlColumnListRenderer->setColumnClass( 'smw-column-responsive' );
+		$htmlColumnListRenderer->setNumberOfColumns( 1 );
+		$htmlColumnListRenderer->addContentsByIndex( $contentsByIndex );
+
+		return $htmlColumnListRenderer->getHtml();
+	}
+
+	private function getFirstLetterForCategory( DataItem $dataItem ) {
+
+		$sortKey = $dataItem->getSortKey();
+
+		if ( $dataItem->getDIType() == DataItem::TYPE_WIKIPAGE ) {
+			$sortKey = ApplicationFactory::getInstance()->getStore()->getWikiPageSortKey( $dataItem );
+
+		}
+
+		return ByLanguageCollationMapper::getInstance()->findFirstLetterForCategory( $sortKey );
+	}
+
 }

@@ -42,7 +42,8 @@ class SMWLanguageZh_cn extends SMWLanguage {
 		'_anu' => '注释URI型', // name of the annotation URI type (OWL annotation property)
 		'_tel' => '电话号码型', // name of the telephone (URI) type
 		'_rec' => '记录型', // name of record data type
-		'_qty' => '数量型' // name of the number type with units of measurement
+		'_qty' => '数量型', // name of the number type with units of measurement
+		'_mlt_rec' => 'Monolingual text',
 	);
 
 	protected $m_DatatypeAliases = array(
@@ -82,7 +83,16 @@ class SMWLanguageZh_cn extends SMWLanguage {
 		'_ASKDE'=> '查询深度', // Query depth
 		'_ASKDU'=> '查询持续时间', // Query duration
 		'_MEDIA'=> '媒体类型', //Media type
-		'_MIME' => 'MIME类型' //Mime type
+		'_MIME' => 'MIME类型', //Mime type
+		'_ERRC' => 'Has processing error',
+		'_ERRT' => 'Has processing error text',
+		'_PREC'  => 'Display precision of',
+		'_LCODE' => 'Language code',
+		'_TEXT'  => 'Text',
+		'_PDESC' => 'Has property description',
+		'_PVAP'  => 'Allows pattern',
+		'_DTITLE' => 'Display title of',
+		'_PVUC' => 'Has uniqueness constraint',
 	);
 
 	protected $m_SpecialPropertyAliases = array(
@@ -101,5 +111,12 @@ class SMWLanguageZh_cn extends SMWLanguage {
 	protected $m_dateformats = array( array( SMW_Y ), array( SMW_MY, SMW_YM ), array( SMW_MDY, SMW_DMY, SMW_YMD, SMW_YDM ) );
 
 	protected $m_months = array( "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月" );
+
+	protected $preferredDateFormatsByPrecision = array(
+		'SMW_PREC_Y'    => 'Y年',
+		'SMW_PREC_YM'   => 'Y年n月',
+		'SMW_PREC_YMD'  => 'Y年n月j日 (D)',
+		'SMW_PREC_YMDT' => 'Y年n月j日 (D) H:i:s'
+	);
 
 }

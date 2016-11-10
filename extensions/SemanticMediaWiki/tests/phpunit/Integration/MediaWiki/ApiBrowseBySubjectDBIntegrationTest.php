@@ -2,17 +2,13 @@
 
 namespace SMW\Tests\Integration\MediaWiki;
 
+use SMW\DataValueFactory;
+use SMW\MediaWiki\Api\BrowseBySubject;
+use SMW\SerializerFactory;
+use SMW\Subobject;
 use SMW\Tests\MwDBaseUnitTestCase;
 use SMW\Tests\Utils\MwApiFactory;
 use SMW\Tests\Utils\SemanticDataFactory;
-
-use SMW\MediaWiki\Api\BrowseBySubject;
-
-use SMW\SemanticData;
-use SMW\DIWikiPage;
-use SMW\DataValueFactory;
-use SMW\Subobject;
-use SMW\SerializerFactory;
 
 /**
  * @group semantic-mediawiki-integration
@@ -70,7 +66,7 @@ class ApiBrowseBySubjectDBIntegrationTest extends MwDBaseUnitTestCase {
 		$semanticData = $this->semanticDataFactory->newEmptySemanticData( __METHOD__ );
 
 		$semanticData->addDataValue(
-			$this->dataValueFactory->newPropertyValue( __METHOD__, 'Bar' )
+			$this->dataValueFactory->newDataValueByText( __METHOD__, 'Bar' )
 		);
 
 		$this->getStore()->updateData( $semanticData );
@@ -98,14 +94,14 @@ class ApiBrowseBySubjectDBIntegrationTest extends MwDBaseUnitTestCase {
 		$semanticData = $this->semanticDataFactory->newEmptySemanticData( __METHOD__ );
 
 		$semanticData->addDataValue(
-			$this->dataValueFactory->newPropertyValue( __METHOD__, 'Bar' )
+			$this->dataValueFactory->newDataValueByText( __METHOD__, 'Bar' )
 		);
 
 		$subobject = new Subobject( $semanticData->getSubject()->getTitle() );
 		$subobject->setEmptyContainerForId( 'Foo' );
 
 		$subobject->addDataValue(
-			$this->dataValueFactory->newPropertyValue( __METHOD__, 'Bam' )
+			$this->dataValueFactory->newDataValueByText( __METHOD__, 'Bam' )
 		);
 
 		$semanticData->addPropertyObjectValue(
@@ -140,13 +136,15 @@ class ApiBrowseBySubjectDBIntegrationTest extends MwDBaseUnitTestCase {
 			'browsebysubject'
 		);
 
-		if ( $asRawMode ) {
+		// Went away with 1.26/1.27
+		if ( function_exists( 'setRawMode' ) && $asRawMode ) {
 			$instance->getMain()->getResult()->setRawMode();
 		}
 
 		$instance->execute();
 
-		return $instance;
+		// MW 1.25
+		return method_exists( $instance, 'getResult' ) ? $instance->getResult() : $instance;
 	}
 
 }

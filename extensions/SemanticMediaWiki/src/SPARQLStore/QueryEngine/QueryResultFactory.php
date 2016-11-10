@@ -2,6 +2,7 @@
 
 namespace SMW\SPARQLStore\QueryEngine;
 
+use SMW\Exporter\Element\ExpElement;
 use SMW\Store;
 use SMWExporter as Exporter;
 use SMWQuery as Query;
@@ -95,7 +96,8 @@ class QueryResultFactory {
 		$resultDataItems = array();
 
 		foreach ( $repositoryResult as $resultRow ) {
-			if ( count( $resultRow ) > 0 ) {
+
+			if ( count( $resultRow ) > 0 && $resultRow[0] instanceof ExpElement ) {
 				$dataItem = Exporter::getInstance()->findDataItemForExpElement( $resultRow[0] );
 
 				if ( !is_null( $dataItem ) ) {
@@ -105,7 +107,9 @@ class QueryResultFactory {
 		}
 
 		if ( $repositoryResult->numRows() > $query->getLimit() ) {
-			array_pop( $resultDataItems );
+			if ( count( $resultDataItems) > 1 ) {
+				array_pop( $resultDataItems );
+			}
 			$hasFurtherResults = true;
 		} else {
 			$hasFurtherResults = false;

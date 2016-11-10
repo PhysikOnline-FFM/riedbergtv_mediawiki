@@ -90,10 +90,16 @@ class SomePropertyInterpreter implements DescriptionInterpreter {
 			$joinVariable
 		);
 
-		$propertyName = $this->getPropertyNameByUsingTurtleSerializer(
+		$propertyName = $this->findMostSuitablePropertyRepresentation(
 			$property,
 			$nonInverseProperty,
 			$namespaces
+		);
+
+		$this->tryToAddPropertyPathForSaturatedHierarchy(
+			$innerCondition,
+			$nonInverseProperty,
+			$propertyName
 		);
 
 		$condition = $this->concatenateToConditionString(
@@ -165,11 +171,25 @@ class SomePropertyInterpreter implements DescriptionInterpreter {
 		return $objectName;
 	}
 
-	private function getPropertyNameByUsingTurtleSerializer( DIProperty $property, DIProperty $nonInverseProperty, &$namespaces ) {
+	private function findMostSuitablePropertyRepresentation( DIProperty $property, DIProperty $nonInverseProperty, &$namespaces ) {
+
+		$redirectByVariable = $this->compoundConditionBuilder->tryToFindRedirectVariableForDataItem(
+			$nonInverseProperty->getDiWikiPage()
+		);
+
+		// If the property is represented by a redirect then use the variable instead
+		if ( $redirectByVariable !== null ) {
+			return $redirectByVariable;
+		}
 
 		// Use helper properties in encoding values, refer to this helper property:
 		if ( $this->exporter->hasHelperExpElement( $property ) ) {
 			$propertyExpElement = $this->exporter->getResourceElementForProperty( $nonInverseProperty, true );
+		} elseif( !$property->isUserDefined() ) {
+			$propertyExpElement = $this->exporter->getSpecialPropertyResource(
+				$nonInverseProperty->getKey(),
+				SMW_NS_PROPERTY
+			);
 		} else {
 			$propertyExpElement = $this->exporter->getResourceElementForProperty( $nonInverseProperty );
 		}
@@ -212,6 +232,29 @@ class SomePropertyInterpreter implements DescriptionInterpreter {
 		}
 
 		return $condition . "{ $innerConditionString}\n";
+	}
+
+	/**
+	 * @note rdfs:subPropertyOf* where * means a property path of arbitrary length
+	 * can be found using the "zero or more" will resolve the complete path
+	 *
+	 * @see http://www.w3.org/TR/sparql11-query/#propertypath-arbitrary-length
+	 */
+	private function tryToAddPropertyPathForSaturatedHierarchy( &$condition, DIProperty $property, &$propertyName ) {
+
+		if ( !$this->compoundConditionBuilder->canUseQFeature( SMW_SPARQL_QF_SUBP ) || !$property->isUserDefined() ) {
+			return null;
+		}
+
+		if ( $this->compoundConditionBuilder->getPropertyHierarchyLookup() == null || !$this->compoundConditionBuilder->getPropertyHierarchyLookup()->hasSubpropertyFor( $property ) ) {
+			return null;
+		}
+
+		$subPropExpElement = $this->exporter->getSpecialPropertyResource( '_SUBP', SMW_NS_PROPERTY );
+
+		$propertyByVariable = '?' . $this->compoundConditionBuilder->getNextVariable( 'sp' );
+		$condition->weakConditions[$propertyName] = "\n". "$propertyByVariable " . $subPropExpElement->getQName() . "*" . " $propertyName .\n"."";
+		$propertyName = $propertyByVariable;
 	}
 
 }

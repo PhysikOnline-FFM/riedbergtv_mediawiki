@@ -2,10 +2,9 @@
 
 namespace SMW;
 
-use SMWPropertyValue as PropertyValue;
-
 use Parser;
 use PPFrame;
+use SMWPropertyValue as PropertyValue;
 
 /**
  * Class that provides the {{#declare}} parser function
@@ -102,13 +101,13 @@ class DeclareParserFunction {
 			$this->addDataValue( $propertystring, $valuestring );
 		}
 
-		// $value = \SMW\DataValueFactory::getInstance()->newPropertyObjectValue( $property->getDataItem(), $valuestring );
+		// $value = \SMW\DataValueFactory::getInstance()->newDataValueByProperty( $property->getDataItem(), $valuestring );
 		// if (!$value->isValid()) continue;
 	}
 
 	private function addDataValue( $property, $value ) {
 
-		$dataValue = DataValueFactory::getInstance()->newPropertyValue(
+		$dataValue = DataValueFactory::getInstance()->newDataValueByText(
 			$property,
 			$value,
 			false,

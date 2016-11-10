@@ -2,12 +2,12 @@
 
 namespace SMW\Tests\Utils\Runners;
 
-use ImportStreamSource;
 use ImportReporter;
-use WikiImporter;
+use ImportStreamSource;
 use RequestContext;
-
 use RuntimeException;
+use SMW\Tests\TestEnvironment;
+use WikiImporter;
 
 /**
  * @group SMW
@@ -26,8 +26,14 @@ class XmlImportRunner {
 	protected $result = null;
 	protected $verbose = false;
 
+	/**
+	 * @var TestEnvironment
+	 */
+	private $testEnvironment;
+
 	public function __construct( $file = null ) {
 		$this->file = $file;
+		$this->testEnvironment = new TestEnvironment();
 	}
 
 	/**
@@ -55,6 +61,7 @@ class XmlImportRunner {
 
 		$this->unregisterUploadsource();
 		$start = microtime( true );
+		$config = null;
 
 		$source = ImportStreamSource::newFromFile(
 			$this->assertThatFileIsReadableOrThrowException( $this->file )
@@ -64,7 +71,12 @@ class XmlImportRunner {
 			throw new RuntimeException( 'Import returned with error(s) ' . serialize( $source->errors ) );
 		}
 
-		$importer = new WikiImporter( $source->value );
+		// WikiImporter::__construct without a Config instance was deprecated in MediaWiki 1.25.
+		if ( class_exists( '\ConfigFactory' ) ) {
+			$config = \ConfigFactory::getDefaultInstance()->makeConfig( 'main' );
+		}
+
+		$importer = new WikiImporter( $source->value, $config );
 		$importer->setDebug( $this->verbose );
 
 		$reporter = new ImportReporter(
@@ -86,6 +98,8 @@ class XmlImportRunner {
 
 		$this->result = $reporter->close();
 		$this->importTime = microtime( true ) - $start;
+
+		$this->testEnvironment->executePendingDeferredUpdates();
 
 		return $this->result->isGood() && !$this->exception;
 	}

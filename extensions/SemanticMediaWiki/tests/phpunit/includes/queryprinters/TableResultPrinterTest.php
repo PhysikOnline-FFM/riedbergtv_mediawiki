@@ -2,15 +2,12 @@
 
 namespace SMW\Test;
 
-use SMW\Tests\Utils\UtilityFactory;
-
-use SMW\Tests\Utils\Mock\MockObjectBuilder;
-use SMW\Tests\Utils\Mock\CoreMockObjectRepository;
-
-use SMW\TableResultPrinter;
-use SMW\DIWikiPage;
-
 use ReflectionClass;
+use SMW\DIWikiPage;
+use SMW\TableResultPrinter;
+use SMW\Tests\Utils\Mock\CoreMockObjectRepository;
+use SMW\Tests\Utils\Mock\MockObjectBuilder;
+use SMW\Tests\Utils\UtilityFactory;
 use Title;
 
 /**
@@ -172,7 +169,7 @@ class TableResultPrinterTest extends QueryPrinterTestCase {
 		$queryResult = $mockBuilder->newObject( 'QueryResult', array(
 			'getPrintRequests'  => array( $printRequests['pr-1'], $printRequests['pr-2'] ),
 			'getNext'           => array( $resultArray['ra-1'], $resultArray['ra-2'] ),
-			'getLink'           => new \SMWInfolink( true, 'Lala', 'Lula' ),
+			'getQueryLink'      => new \SMWInfolink( true, 'Lala', 'Lula' ),
 			'hasFurtherResults' => true
 		) );
 
@@ -189,7 +186,7 @@ class TableResultPrinterTest extends QueryPrinterTestCase {
 			'<table class="tableClass">',
 			'<th class="PrintRequest-PageValue">PrintRequest-PageValue</th>',
 			'<th class="PrintRequest-NumberValue">PrintRequest-NumberValue</th>',
-			'<tr class="row-odd">',
+			'<tr data-row-number="1" class="row-odd">',
 			'class="PrintRequest-PageValue smwtype_wpg">ResultArray-PageValue</td>',
 			'<td data-sort-value="9001"',
 			'class="PrintRequest-NumberValue smwtype_num">9001</td></tr>',

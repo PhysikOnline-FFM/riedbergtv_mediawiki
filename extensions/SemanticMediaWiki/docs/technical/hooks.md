@@ -26,6 +26,19 @@ Implementing a hook should be made in consideration of the expected performance 
 - `SMW::Parser::BeforeMagicWordsFinder` allows to extend the magic words list that the `InTextAnnotationParser` should
   search for the wikitext.
 
+### 2.3
+
+- `SMW::SQLStore::BeforeDataRebuildJobInsert` to add update jobs while running the rebuild process.<sup>Use of `smwRefreshDataJobs` was deprecated with 2.3</sup>
+- `SMW::SQLStore::AddCustomFixedPropertyTables` to add fixed property table definitions
+- `SMW::Browse::AfterIncomingPropertiesLookupComplete` to extend the incoming properties display for `Special:Browse`
+- `SMW::Browse::BeforeIncomingPropertyValuesFurtherLinkCreate` to replace the standard `SearchByProperty` with a custom link to an extended list of results (return `false` to replace the link)
+- `SMW::SQLStore::AfterDataUpdateComplete` to add processing after the update has been completed and provides `CompositePropertyTableDiffIterator` to identify entities
+   that have been added/removed during the update. <sup>Use of `SMWSQLStore3::updateDataAfter` was deprecated with 2.3</sup>
+
+### 2.4
+
+- `SMW::FileUpload::BeforeUpdate` to add extra annotations before the store update is triggered
+
 For implementation details and examples, see the [integration test](https://github.com/SemanticMediaWiki/SemanticMediaWiki/blob/master/tests/phpunit/Integration/SemanticMediaWikiProvidedHookInterfaceIntegrationTest.php).
 
 ## Other available hooks
@@ -40,7 +53,6 @@ Subsequent hooks should be renamed to follow a common naming practice that help 
 * `SMWSQLStore3SetupHandlers`, SMWCustomSQLStoreFieldType
 * `SMWSQLStore3SetupHandlers`, smwRefreshDataJobs (SMW::SQLStore::AfterRefreshDataJob)
 * `SMWSQLStore3Writers`, SMWSQLStore3::updateDataBefore (SMW::SQLStore::BeforeDataUpdateComplete)
-* `SMWSQLStore3Writers`, SMWSQLStore3::updateDataAfter (SMW::SQLStore::AfterDataUpdateComplete)
 * `SMWSetupScript`, smwDropTables (SMW::Store::dropTables)
 * `SMW_refreshData`, smwDropTables (SMW::Store::dropTables)
 

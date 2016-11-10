@@ -3,7 +3,6 @@
 namespace SMW\Tests;
 
 use SMW\DIWikiPage;
-
 use SMWQueryResult as QueryResult;
 
 /**
@@ -69,6 +68,37 @@ class QueryResultTest extends \PHPUnit_Framework_TestCase {
 		$this->assertInternalType(
 			'array',
 			$instance->getNext()
+		);
+	}
+
+	public function testIsFromCache() {
+
+		$query = $this->getMockBuilder( '\SMWQuery' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$store = $this->getMockBuilder( '\SMW\Store' )
+			->disableOriginalConstructor()
+			->getMockForAbstractClass();
+
+		$printRequests = array();
+		$results = array();
+
+		$instance = new QueryResult(
+			$printRequests,
+			$query,
+			$results,
+			$store
+		);
+
+		$this->assertFalse(
+			$instance->isFromCache()
+		);
+
+		$instance->setFromCache( true );
+
+		$this->assertTrue(
+			$instance->isFromCache()
 		);
 	}
 

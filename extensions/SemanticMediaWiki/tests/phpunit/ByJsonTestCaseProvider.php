@@ -2,8 +2,8 @@
 
 namespace SMW\Tests;
 
-use SMW\Tests\Utils\UtilityFactory;
 use SMW\ApplicationFactory;
+use SMW\Tests\Utils\UtilityFactory;
 use Title;
 
 /**
@@ -14,12 +14,6 @@ use Title;
  * The json format should make it also possible for novice user to understand
  * what sort of tests are run as the content is based on wikitext rather than
  * native PHP.
- *
- * Json files are read from a specified directory and invoked individually which
- * then will be executed by a TestCaseRunner.
- *
- * - ByJsonQueryTestCaseRunnerTest
- * - ByJsonRdfTestCaseRunnerTest
  *
  * @group semantic-mediawiki-integration
  * @group medium
@@ -42,6 +36,11 @@ abstract class ByJsonTestCaseProvider extends MwDBaseUnitTestCase {
 	private $pageCreator;
 
 	/**
+	 * @var PageDeleter
+	 */
+	private $pageDeleter;
+
+	/**
 	 * @var JsonTestCaseFileHandler
 	 */
 	private $jsonTestCaseFileHandler;
@@ -59,15 +58,29 @@ abstract class ByJsonTestCaseProvider extends MwDBaseUnitTestCase {
 	/**
 	 * @var boolean
 	 */
-	private $deleteAfterState = true;
+	protected $deleteAfterState = true;
+
+	/**
+	 * @var string
+	 */
+	protected $connectorId = '';
 
 	protected function setUp() {
 		parent::setUp();
 
 		$utilityFactory = UtilityFactory::getInstance();
+		$utilityFactory->newMwHooksHandler()->deregisterListedHooks();
+		$utilityFactory->newMwHooksHandler()->invokeHooksFromRegistry();
 
 		$this->fileReader = $utilityFactory->newJsonFileReader( null );
 		$this->pageCreator = $utilityFactory->newPageCreator();
+		$this->pageDeleter = $utilityFactory->newPageDeleter();
+
+		if ( $this->getStore() instanceof \SMWSparqlStore ) {
+			$this->connectorId = strtolower( $GLOBALS['smwgSparqlDatabaseConnector'] );
+		} else {
+			$this->connectorId = strtolower( $this->getDBConnection()->getType() );
+		}
 	}
 
 	protected function tearDown() {
@@ -82,18 +95,36 @@ abstract class ByJsonTestCaseProvider extends MwDBaseUnitTestCase {
 
 	abstract protected function getTestCaseLocation();
 
-	abstract protected function getJsonTestCaseVersion();
-
 	/**
 	 * @param JsonTestCaseFileHandler $jsonTestCaseFileHandler
 	 */
 	abstract protected function runTestCaseFile( JsonTestCaseFileHandler $jsonTestCaseFileHandler );
 
 	/**
+	 * @return string
+	 */
+	protected function getRequiredJsonTestCaseMinVersion() {
+		return '0.1';
+	}
+
+	/**
+	 * @param string $file
+	 * @return boolean
+	 */
+	protected function canExecuteTestCasesFor( $file ) {
+		return true;
+	}
+
+	/**
 	 * @test
 	 * @dataProvider jsonFileProvider
 	 */
 	public function executeTestCasesFor( $file ) {
+
+		if ( !$this->canExecuteTestCasesFor( $file ) ) {
+			$this->markTestSkipped( $file . ' excluded from test run' );
+		}
+
 		$this->fileReader->setFile( $file );
 		$this->runTestCaseFile( new JsonTestCaseFileHandler( $this->fileReader ) );
 	}
@@ -102,17 +133,45 @@ abstract class ByJsonTestCaseProvider extends MwDBaseUnitTestCase {
 
 		foreach ( $pages as $page ) {
 
+			$skipOn = isset( $page['skip-on'] ) ? $page['skip-on'] : array();
+
+			if ( in_array( $this->connectorId, array_keys( $skipOn ) ) ) {
+				continue;
+			}
+
 			if ( !isset( $page['name'] ) || !isset( $page['contents'] ) ) {
 				continue;
 			}
 
 			$namespace = isset( $page['namespace'] ) ? constant( $page['namespace'] ) : $defaultNamespace;
+			$pageContentLanguage = isset( $page['contentlanguage'] ) ? $page['contentlanguage'] : '';
 
-			$this->pageCreator
-				->createPage( Title::newFromText( $page['name'], $namespace ) )
-				->doEdit( $page['contents'] );
+			$title = Title::newFromText(
+				$page['name'],
+				$namespace
+			);
+
+			if ( is_array( $page['contents'] ) && isset( $page['contents']['import-from'] ) ) {
+				$contents = file_get_contents( $this->getTestCaseLocation() . $page['contents']['import-from'] );
+			} else {
+				$contents = $page['contents'];
+			}
+
+			$this->pageCreator->createPage( $title, $contents, $pageContentLanguage );
 
 			$this->itemsMarkedForDeletion[] = $this->pageCreator->getPage();
+
+			if ( isset( $page['move-to'] ) ) {
+				$this->doMove( $page, $namespace );
+			}
+
+			if ( isset( $page['do-purge'] ) ) {
+				$this->pageCreator->getPage()->doPurge();
+			}
+
+			if ( isset( $page['do-delete'] ) && $page['do-delete'] ) {
+				$this->pageDeleter->deletePage( $title );
+			}
 		}
 	}
 
@@ -136,9 +195,9 @@ abstract class ByJsonTestCaseProvider extends MwDBaseUnitTestCase {
 			$this->markTestIncomplete( $jsonTestCaseFileHandler->getReasonForSkip() );
 		}
 
-		if ( $jsonTestCaseFileHandler->requiredToSkipForJsonVersion( $this->getJsonTestCaseVersion() ) ) {
-			$this->markTestSkipped( $jsonTestCaseFileHandler->getReasonForSkip() );
-		}
+	//	if ( $jsonTestCaseFileHandler->requiredToSkipForJsonVersion( $this->getRequiredJsonTestCaseMinVersion() ) ) {
+		//	$this->markTestSkipped( $jsonTestCaseFileHandler->getReasonForSkip() );
+	//	}
 
 		if ( $jsonTestCaseFileHandler->requiredToSkipForMwVersion( $GLOBALS['wgVersion'] ) ) {
 			$this->markTestSkipped( $jsonTestCaseFileHandler->getReasonForSkip() );
@@ -169,6 +228,20 @@ abstract class ByJsonTestCaseProvider extends MwDBaseUnitTestCase {
 			$GLOBALS[$key] = $value;
 			ApplicationFactory::getInstance()->getSettings()->set( $key, $value );
 		}
+	}
+
+	private function doMove( $page, $namespace ) {
+		$target = Title::newFromText(
+			$page['move-to']['target'],
+			$namespace
+		);
+
+		$this->pageCreator->doMoveTo(
+			$target,
+			$page['move-to']['is-redirect']
+		);
+
+		$this->itemsMarkedForDeletion[] = $target;
 	}
 
 }

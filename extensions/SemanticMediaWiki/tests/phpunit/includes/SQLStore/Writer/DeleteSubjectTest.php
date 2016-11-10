@@ -2,18 +2,12 @@
 
 namespace SMW\Tests\SQLStore\Writer;
 
-use \SMWSQLStore3Writers;
-
+use SMWSQLStore3Writers;
 use Title;
 
 /**
  * @covers \SMWSQLStore3Writers
- *
- * @group SMW
- * @group SMWExtension
- *
- * @group semantic-mediawiki-sqlstore
- * @group mediawiki-databaseless
+ * @group semantic-mediawiki
  *
  * @license GNU GPL v2+
  * @since 1.9.2
@@ -22,15 +16,28 @@ use Title;
  */
 class DeleteSubjectTest extends \PHPUnit_Framework_TestCase {
 
-	public function testCanConstruct() {
+	private $store;
 
-		$parentStore = $this->getMockBuilder( '\SMWSQLStore3' )
+	protected function setUp() {
+
+		$propertyTableInfoFetcher = $this->getMockBuilder( '\SMW\SQLStore\PropertyTableInfoFetcher' )
 			->disableOriginalConstructor()
 			->getMock();
 
+		$this->store = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->store->expects( $this->any() )
+			->method( 'getPropertyTableInfoFetcher' )
+			->will( $this->returnValue( $propertyTableInfoFetcher ) );
+	}
+
+	public function testCanConstruct() {
+
 		$this->assertInstanceOf(
 			'\SMWSQLStore3Writers',
-			new SMWSQLStore3Writers( $parentStore )
+			new SMWSQLStore3Writers( $this->store )
 		);
 	}
 
@@ -43,12 +50,8 @@ class DeleteSubjectTest extends \PHPUnit_Framework_TestCase {
 			->getMock();
 
 		$objectIdGenerator->expects( $this->once() )
-			->method( 'getSMWPageIDandSort' )
-			->will( $this->returnValue( 0 ) );
-
-		$objectIdGenerator->expects( $this->once() )
-			->method( 'makeSMWPageID' )
-			->will( $this->returnValue( 0 ) );
+			->method( 'getListOfIdMatchesFor' )
+			->will( $this->returnValue( array( 0 ) ) );
 
 		$objectIdGenerator->expects( $this->once() )
 			->method( 'getPropertyTableHashes' )
@@ -58,27 +61,27 @@ class DeleteSubjectTest extends \PHPUnit_Framework_TestCase {
 			->disableOriginalConstructor()
 			->getMock();
 
-		$database->expects( $this->once() )
+		$database->expects( $this->atLeastOnce() )
 			->method( 'select' )
 			->will( $this->returnValue( array() ) );
 
-		$parentStore = $this->getMockBuilder( '\SMWSQLStore3' )
-			->disableOriginalConstructor()
-			->getMock();
-
-		$parentStore->expects( $this->exactly( 5 ) )
+		$this->store->expects( $this->exactly( 7 ) )
 			->method( 'getObjectIds' )
 			->will( $this->returnValue( $objectIdGenerator ) );
 
-		$parentStore->expects( $this->any() )
+		$this->store->expects( $this->any() )
 			->method( 'getConnection' )
 			->will( $this->returnValue( $database ) );
 
-		$parentStore->expects( $this->exactly( 4 ) )
+		$this->store->expects( $this->any() )
+			->method( 'getProperties' )
+			->will( $this->returnValue( array() ) );
+
+		$this->store->expects( $this->exactly( 4 ) )
 			->method( 'getPropertyTables' )
 			->will( $this->returnValue( array() ) );
 
-		$instance = new SMWSQLStore3Writers( $parentStore );
+		$instance = new SMWSQLStore3Writers( $this->store );
 		$instance->deleteSubject( $title );
 	}
 
@@ -91,20 +94,19 @@ class DeleteSubjectTest extends \PHPUnit_Framework_TestCase {
 			->getMock();
 
 		$objectIdGenerator->expects( $this->once() )
-			->method( 'getSMWPageID' )
+			->method( 'getListOfIdMatchesFor' )
 			->with(
 				$this->equalTo( $title->getDBkey() ),
 				$this->equalTo( $title->getNamespace() ),
 				$this->equalTo( $title->getInterwiki() ),
-				'',
-				false )
-			->will( $this->returnValue( 0 ) );
+				'' )
+			->will( $this->returnValue( array( 0 ) ) );
 
 		$database = $this->getMockBuilder( '\SMW\MediaWiki\Database' )
 			->disableOriginalConstructor()
 			->getMock();
 
-		$database->expects( $this->once() )
+		$database->expects( $this->atLeastOnce() )
 			->method( 'select' )
 			->will( $this->returnValue( array() ) );
 
@@ -116,23 +118,23 @@ class DeleteSubjectTest extends \PHPUnit_Framework_TestCase {
 			->method( 'delete' )
 			->will( $this->returnValue( true ) );
 
-		$parentStore = $this->getMockBuilder( '\SMWSQLStore3' )
-			->disableOriginalConstructor()
-			->getMock();
-
-		$parentStore->expects( $this->any() )
+		$this->store->expects( $this->any() )
 			->method( 'getConnection' )
 			->will( $this->returnValue( $database ) );
 
-		$parentStore->expects( $this->exactly( 6 ) )
+		$this->store->expects( $this->exactly( 7 ) )
 			->method( 'getObjectIds' )
 			->will( $this->returnValue( $objectIdGenerator ) );
 
-		$parentStore->expects( $this->exactly( 4 ) )
+		$this->store->expects( $this->any() )
+			->method( 'getProperties' )
+			->will( $this->returnValue( array() ) );
+
+		$this->store->expects( $this->exactly( 4 ) )
 			->method( 'getPropertyTables' )
 			->will( $this->returnValue( array() ) );
 
-		$instance = new SMWSQLStore3Writers( $parentStore );
+		$instance = new SMWSQLStore3Writers( $this->store );
 		$instance->deleteSubject( $title );
 	}
 

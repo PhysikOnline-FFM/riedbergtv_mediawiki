@@ -1,5 +1,6 @@
 <?php
 
+use SMW\ApplicationFactory;
 use SMW\DataTypeRegistry;
 use SMW\DataValueFactory;
 
@@ -30,6 +31,7 @@ class SMWSpecialTypes extends SpecialPage {
 			$wgOut->setPageTitle( wfMessage( 'types' )->text() );
 			$html = $this->getTypesList();
 		} else {
+			$typeLabel = str_replace( '%', '-', $typeLabel );
 			$typeName = str_replace( '_', ' ', $typeLabel );
 			$wgOut->setPageTitle( $typeName ); // Maybe add a better message for this
 			$html = $this->getTypeProperties( $typeLabel );
@@ -41,19 +43,35 @@ class SMWSpecialTypes extends SpecialPage {
 	}
 
 	protected function getTypesList() {
-		$html = '<p>' . wfMessage( 'smw_types_docu' )->escaped() . "</p><br />\n";
 
 		$typeLabels = DataTypeRegistry::getInstance()->getKnownTypeLabels();
 		asort( $typeLabels, SORT_STRING );
 
-		$html .= "<ul>\n";
+		$mwCollaboratorFactory = ApplicationFactory::getInstance()->newMwCollaboratorFactory();
+		$htmlColumnListRenderer = $mwCollaboratorFactory->newHtmlColumnListRenderer();
+
 		foreach ( $typeLabels as $typeId => $label ) {
 			$typeValue = SMWTypesValue::newFromTypeId( $typeId );
-			$html .= '<li>' . $typeValue->getLongHTMLText( smwfGetLinker() ) . "</li>\n";
+			$startChar = $this->getLanguage()->convert( $this->getLanguage()->firstChar( $typeValue->getWikiValue() ) );
+			$contentsByIndex[] = $typeValue->getLongHTMLText( smwfGetLinker() );
 		}
-		$html .= "</ul>\n";
 
-		return $html;
+
+		$htmlColumnListRenderer->setNumberOfColumns( 2 );
+		$htmlColumnListRenderer->addContentsByNoIndex( $contentsByIndex );
+		$htmlColumnListRenderer->setColumnListClass( 'smw-sp-types-list' );
+
+		$html = \Html::rawElement(
+			'p',
+			array( 'class' => 'smw-sp-types-intro' ),
+			wfMessage( 'smw_types_docu' )->parse()
+		).  \Html::element(
+			'h2',
+			array(),
+			wfMessage( 'smw-sp-types-list' )->escaped()
+		);
+
+		return $html . $htmlColumnListRenderer->getHtml();
 	}
 
 	protected function getTypeProperties( $typeLabel ) {
@@ -67,19 +85,38 @@ class SMWSpecialTypes extends SpecialPage {
 		$until = $wgRequest->getVal( 'until' );
 		$typeValue = DataValueFactory::getInstance()->newTypeIDValue( '__typ', $typeLabel );
 
+		$this->getOutput()->prependHTML( $this->getTypesLink() );
+
 		if ( !$typeValue->isValid() ) {
 			return $this->msg( 'smw-special-types-no-such-type' )->escaped();
 		}
 
 		$store = \SMW\StoreFactory::getStore();
 		$options = SMWPageLister::getRequestOptions( $smwgTypePagingLimit, $from, $until );
-		$diWikiPages = $store->getPropertySubjects( new SMWDIProperty( '_TYPE' ), $typeValue->getDataItem(), $options );
+		$diWikiPages = $store->getPropertySubjects( new SMW\DIProperty( '_TYPE' ), $typeValue->getDataItem(), $options );
 
 		if ( !$options->ascending ) {
 			$diWikiPages = array_reverse( $diWikiPages );
 		}
 
-		$result = '';
+		$escapedTypeLabel = htmlspecialchars( $typeValue->getWikiValue() );
+
+		$canonicalLabel =  DataTypeRegistry::getInstance()->findCanonicalLabelById(
+			$typeValue->getDataItem()->getFragment()
+		);
+
+		$typeKey  = 'smw-sp-types' . strtolower( $typeValue->getDataItem()->getFragment() );
+
+		$messageKey = wfMessage( $typeKey )->exists() ? $typeKey : 'smw-sp-types-default';
+
+		$result = \Html::rawElement(
+			'div',
+			array( 'class' => 'smw-sp-types-intro'. $typeKey ),
+			wfMessage( $messageKey, str_replace( '_', ' ', $escapedTypeLabel ) )->parse() . ' ' .
+			wfMessage( 'smw-sp-types-help', str_replace( ' ', '_', $canonicalLabel ) )->parse()
+		);
+
+		$result .= $this->displayExtraInformationAbout( $typeValue );
 
 		if ( count( $diWikiPages ) > 0 ) {
 			$pageLister = new SMWPageLister( $diWikiPages, null, $smwgTypePagingLimit, $from, $until );
@@ -99,4 +136,56 @@ class SMWSpecialTypes extends SpecialPage {
 
 		return $result;
 	}
+
+	protected function getGroupName() {
+		return 'pages';
+	}
+
+	private function displayExtraInformationAbout( $typeValue ) {
+
+		$html = '';
+
+		$dataValue = DataValueFactory::getInstance()->newTypeIDValue(
+			$typeValue->getDataItem()->getFragment()
+		);
+
+		$escapedTypeLabel = htmlspecialchars( $typeValue->getWikiValue() );
+
+		if ( $typeValue->getDataItem()->getFragment() === '_geo' ) {
+			if ( $dataValue instanceof \SMWErrorValue ) {
+				$html = \Html::rawElement(
+					'p',
+					array(),
+					wfMessage( 'smw-sp-types-geo-not-available', $escapedTypeLabel )->parse()
+				);
+			}
+		}
+
+		if ( $typeValue->getDataItem()->getFragment() === '_mlt_rec' ) {
+			$html = \Html::rawElement(
+				'p',
+				array(),
+				wfMessage( 'smw-sp-types-mlt-lcode', $escapedTypeLabel, ( $dataValue->isEnabledFeature( SMW_DV_MLTV_LCODE ) ? 1 : 2 ) )->parse()
+			);
+		}
+
+		return $html;
+	}
+
+	private function getTypesLink() {
+		return \Html::rawElement(
+			'div',
+			array( 'class' => 'smw-breadcrumb-link' ),
+			\Html::rawElement(
+				'span',
+				array( 'class' => 'smw-breadcrumb-arrow-right' ),
+				''
+			) .
+			\Html::rawElement(
+				'a',
+				array( 'href' => \SpecialPage::getTitleFor( 'Types')->getFullURL() ),
+				$this->msg( 'types' )->escaped()
+		) );
+	}
+
 }

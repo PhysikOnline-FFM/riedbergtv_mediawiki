@@ -2,15 +2,13 @@
 
 namespace SMW\Tests\Utils;
 
+use CloneDatabase;
+use HashBagOStuff;
+use ObjectCache;
+use RuntimeException;
 use SMW\DBConnectionProvider;
 use SMW\Store;
-
-use ObjectCache;
-use HashBagOStuff;
 use Title;
-
-use RuntimeException;
-use CloneDatabase;
 
 /**
  *
@@ -228,6 +226,11 @@ class MwDatabaseTableBuilder {
 			$this->getDBPrefix()
 		);
 
+		// Ensure no leftovers
+		if ( $this->getDBConnection()->getType() === 'postgres' ) {
+			$this->cloneDatabase->destroy( true );
+		}
+
 		// Rebuild the DB (in order to exclude temporary table usage)
 		// otherwise some tests will fail with
 		// "Error: 1137 Can't reopen table" on MySQL (see Issue #80)
@@ -262,7 +265,8 @@ class MwDatabaseTableBuilder {
 				$this->getDBConnection()->rollback();
 			}
 
-			$this->getDBConnection()->ignoreErrors( false );
+			// 1.26 was mde protected
+			// $this->getDBConnection()->ignoreErrors( false );
 		}
 	}
 

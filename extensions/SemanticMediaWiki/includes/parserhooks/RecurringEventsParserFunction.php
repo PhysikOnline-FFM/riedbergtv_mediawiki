@@ -44,11 +44,11 @@ class RecurringEventsParserFunction extends SubobjectParserFunction {
 	 *
 	 * @since 1.9
 	 *
-	 * @param ArrayFormatter $parameters
+	 * @param ParserParameterProcessor $parameters
 	 *
 	 * @return string|null
 	 */
-	public function parse( ArrayFormatter $parameters ) {
+	public function parse( ParserParameterProcessor $parameters ) {
 
 		$this->setFirstElementForPropertyLabel( true );
 
@@ -71,9 +71,9 @@ class RecurringEventsParserFunction extends SubobjectParserFunction {
 			// @see SubobjectParserFunction::addDataValuesToSubobject
 			// Each new $parameters set will add an additional subobject
 			// to the instance
-			$this->addDataValuesToSubobject( $parameters );
-
-			$this->parserData->getSemanticData()->addSubobject( $this->subobject );
+			if ( $this->addDataValuesToSubobject( $parameters ) ) {
+				$this->parserData->getSemanticData()->addSubobject( $this->subobject );
+			}
 
 			// Collect errors that occurred during processing
 			$this->messageFormatter->addFromArray( $this->subobject->getErrors() );
@@ -82,7 +82,9 @@ class RecurringEventsParserFunction extends SubobjectParserFunction {
 		// Update ParserOutput
 		$this->parserData->pushSemanticDataToParserOutput();
 
-		return $this->messageFormatter->getHtml();
+		return $this->messageFormatter
+			->addFromArray( $this->parserData->getErrors() )
+			->getHtml();
 	}
 
 }

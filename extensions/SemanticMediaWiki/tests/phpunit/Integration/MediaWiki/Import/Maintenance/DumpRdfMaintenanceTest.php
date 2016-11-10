@@ -2,8 +2,10 @@
 
 namespace SMW\Tests\Integration\MediaWiki\Import\Maintenance;
 
-use SMW\Tests\Utils\UtilityFactory;
+use SMW\ApplicationFactory;
+use SMW\EventHandler;
 use SMW\Tests\MwDBaseUnitTestCase;
+use SMW\Tests\Utils\UtilityFactory;
 
 /**
  * @group SMW
@@ -29,9 +31,16 @@ class DumpRdfMaintenanceTest extends MwDBaseUnitTestCase {
 	protected function setUp() {
 		parent::setUp();
 
+		if ( version_compare( $GLOBALS['wgVersion'], '1.20', '<' ) ) {
+			$this->markTestSkipped( "Skipping this test, MW 1.19 doesn't clean-up the title cache correctly." );
+		}
+
 		$this->runnerFactory  = UtilityFactory::getInstance()->newRunnerFactory();
 		$this->titleValidator = UtilityFactory::getInstance()->newValidatorFactory()->newTitleValidator();
 		$this->stringValidator = UtilityFactory::getInstance()->newValidatorFactory()->newStringValidator();
+
+		ApplicationFactory::getInstance()->getSettings()->set( 'smwgExportBCAuxiliaryUse', true );
+		EventHandler::getInstance()->getEventDispatcher()->dispatch( 'exporter.reset' );
 
 		$importRunner = $this->runnerFactory->newXmlImportRunner(
 			__DIR__ . '/../Fixtures/' . 'GenericLoremIpsumTest-Mw-1-19-7.xml'
@@ -44,6 +53,7 @@ class DumpRdfMaintenanceTest extends MwDBaseUnitTestCase {
 	}
 
 	protected function tearDown() {
+		ApplicationFactory::getInstance()->clear();
 
 		$pageDeleter = UtilityFactory::getInstance()->newPageDeleter();
 		$pageDeleter->doDeletePoolOfPages( $this->importedTitles );
@@ -52,6 +62,8 @@ class DumpRdfMaintenanceTest extends MwDBaseUnitTestCase {
 	}
 
 	public function testMaintenanceRdfOutput() {
+
+		$this->testEnvironment->executePendingDeferredUpdates();
 
 		$this->importedTitles = array(
 			'Category:Lorem ipsum',

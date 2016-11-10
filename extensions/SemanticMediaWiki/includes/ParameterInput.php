@@ -2,8 +2,8 @@
 
 namespace SMW;
 
-use ParamProcessor\ParamDefinition;
 use Html;
+use ParamProcessor\ParamDefinition;
 use Xml;
 
 /**
@@ -140,6 +140,11 @@ class ParameterInput {
 			$value = implode( $this->param->getDelimiter(), $value );
 		}
 
+		// #1473
+		if ( $value === array() ) {
+		   $value = '';
+		}
+
 		return $value;
 	}
 
@@ -216,7 +221,7 @@ class ParameterInput {
 		foreach ( $valueList as $value ) {
 			$options[] =
 				'<option value="' . htmlspecialchars( $value ) . '"' .
-					( in_array( $value, $currentValues ) ? ' selected' : '' ) . '>' . htmlspecialchars( $value ) .
+					( in_array( $value, $currentValues ) ? ' selected="selected"' : '' ) . '>' . htmlspecialchars( $value ) .
 				'</option>';
 		}
 

@@ -1,3 +1,9 @@
 {
-	"smw-livepreview-loading": "सम्पूर्यमाणः....."
+	"@metadata": {
+		"authors": [
+			"NehalDaveND"
+		]
+	},
+	"browse": "विकि दृश्यताम्",
+	"smw-livepreview-loading": "आरोपयति..."
 }

@@ -24,6 +24,7 @@ class Ask extends Query {
 	public function execute() {
 
 		$parameterFormatter = new ApiRequestParameterFormatter( $this->extractRequestParams() );
+		$outputFormat = 'json';
 
 		list( $queryString, $parameters, $printouts ) = SMWQueryProcessor::getComponentsFromFunctionParams( $parameterFormatter->getAskApiParameters(), false );
 
@@ -33,7 +34,11 @@ class Ask extends Query {
 			$parameters
 		) );
 
-		$this->addQueryResult( $queryResult );
+		if ( $this->getMain()->getPrinter() instanceof \ApiFormatXml ) {
+			$outputFormat = 'xml';
+		}
+
+		$this->addQueryResult( $queryResult, $outputFormat );
 	}
 
 	/**
@@ -84,6 +89,7 @@ class Ask extends Query {
 	protected function getExamples() {
 		return array(
 			'api.php?action=ask&query=[[Modification%20date::%2B]]|%3FModification%20date|sort%3DModification%20date|order%3Ddesc',
+			'api.php?action=ask&query=[[Modification%20date::%2B]]|limit%3D5|offset%3D1'
 		);
 	}
 

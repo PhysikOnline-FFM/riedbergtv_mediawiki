@@ -2,9 +2,8 @@
 
 namespace SMW\SQLStore\QueryEngine;
 
-use SMW\SQLStore\QueryEngine\QuerySegment;
-use SMWQueryParser as QueryParser;
 use SMWQuery as Query;
+use SMWQueryParser as QueryParser;
 
 /**
  * @license GNU GPL v2+
@@ -49,41 +48,40 @@ class ConceptQueryResolver {
 	 */
 	public function prepareQuerySegmentFor( $conceptDescriptionText ) {
 
-		$querySegements = array();
 		QuerySegment::$qnum = 0;
 
-		$queryBuilder = $this->queryEngine->getQueryBuilder();
-		$queryBuilder->setSortKeys( array() );
+		$querySegmentListBuilder = $this->queryEngine->getQuerySegmentListBuilder();
+		$querySegmentListBuilder->setSortKeys( array() );
 
 		$qp = new QueryParser( $this->conceptFeatures );
 
-		$queryBuilder->buildQuerySegmentFor(
+		$querySegmentListBuilder->buildQuerySegmentFor(
 			$qp->getQueryDescription( $conceptDescriptionText )
 		);
 
-		$qid = $queryBuilder->getLastQuerySegmentId();
-		$querySegements = $queryBuilder->getQuerySegments();
+		$qid = $querySegmentListBuilder->getLastQuerySegmentId();
+		$querySegmentList = $querySegmentListBuilder->getQuerySegmentList();
 
 		if ( $qid < 0 ) {
 			return null;
 		}
 
 		// execute query tree, resolve all dependencies
-		$querySegmentListResolver = $this->queryEngine->getQuerySegmentListResolver();
+		$querySegmentListProcessor = $this->queryEngine->getQuerySegmentListProcessor();
 
-		$querySegmentListResolver->setQueryMode( Query::MODE_INSTANCES );
-		$querySegmentListResolver->setQuerySegmentList( $querySegements );
-		$querySegmentListResolver->resolveForSegmentId( $qid );
+		$querySegmentListProcessor->setQueryMode( Query::MODE_INSTANCES );
+		$querySegmentListProcessor->setQuerySegmentList( $querySegmentList );
+		$querySegmentListProcessor->doExecuteSubqueryJoinDependenciesFor( $qid );
 
-		return $querySegements[$qid];
+		return $querySegmentList[$qid];
 	}
 
 	/**
 	 * @since 2.2
 	 */
 	public function cleanUp() {
-		$this->queryEngine->getQuerySegmentListResolver()->setQueryMode( Query::MODE_INSTANCES );
-		$this->queryEngine->getQuerySegmentListResolver()->cleanUp();
+		$this->queryEngine->getQuerySegmentListProcessor()->setQueryMode( Query::MODE_INSTANCES );
+		$this->queryEngine->getQuerySegmentListProcessor()->cleanUp();
 	}
 
 	/**
@@ -92,7 +90,7 @@ class ConceptQueryResolver {
 	 * @return array
 	 */
 	public function getErrors() {
-		return $this->queryEngine->getQueryBuilder()->getErrors();
+		return $this->queryEngine->getQuerySegmentListBuilder()->getErrors();
 	}
 
 }

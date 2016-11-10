@@ -10,7 +10,7 @@ use ValueFormatters\FormatterOptions;
  * @group ValueFormatters
  * @group DataValueExtensions
  *
- * @licence GNU GPL v2+
+ * @license GPL-2.0+
  * @author Jeroen De Dauw < jeroendedauw@gmail.com >
  */
 class FormatterOptionsTest extends \PHPUnit_Framework_TestCase {
@@ -25,7 +25,7 @@ class FormatterOptionsTest extends \PHPUnit_Framework_TestCase {
 		$formatterOptions = new FormatterOptions( $options );
 
 		foreach ( $options as $option => $value ) {
-			$this->assertEquals(
+			$this->assertSame(
 				serialize( $value ),
 				serialize( $formatterOptions->getOption( $option ) ),
 				'Option should be set properly'
@@ -62,10 +62,6 @@ class FormatterOptionsTest extends \PHPUnit_Framework_TestCase {
 
 	/**
 	 * @dataProvider setOptionProvider
-	 *
-	 * @param FormatterOptions $options
-	 * @param $option
-	 * @param $value
 	 */
 	public function testSetAndGetOption( FormatterOptions $options, $option, $value ) {
 		$options->setOption( $option, $value );
@@ -109,12 +105,8 @@ class FormatterOptionsTest extends \PHPUnit_Framework_TestCase {
 
 		foreach ( $values as $value ) {
 			$formatterOptions->setOption( $value[0], $value[1] );
-			$this->assertEquals( $value[1], $formatterOptions->getOption( $value[0] ) );
+			$this->assertSame( $value[1], $formatterOptions->getOption( $value[0] ) );
 		}
-	}
-
-	public function testForSomeReasonPhpSegfaultsIfThereIsOneMethodLess() {
-		$this->assertTrue( (bool)'This is fucking weird' );
 	}
 
 	/**
@@ -171,7 +163,7 @@ class FormatterOptionsTest extends \PHPUnit_Framework_TestCase {
 		foreach ( $options as $option => $value ) {
 			$formatterOptions->defaultOption( $option, 9001 );
 
-			$this->assertEquals(
+			$this->assertSame(
 				serialize( $value ),
 				serialize( $formatterOptions->getOption( $option ) ),
 				'Defaulting a set option should not affect its value'
@@ -188,7 +180,7 @@ class FormatterOptionsTest extends \PHPUnit_Framework_TestCase {
 		foreach ( $defaults as $option => $value ) {
 			$formatterOptions->defaultOption( $option, $value );
 
-			$this->assertEquals(
+			$this->assertSame(
 				serialize( $value ),
 				serialize( $formatterOptions->getOption( $option ) ),
 				'Defaulting a not set option should affect its value'

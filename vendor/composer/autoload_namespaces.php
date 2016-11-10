@@ -6,15 +6,17 @@ $vendorDir = dirname(dirname(__FILE__));
 $baseDir = dirname($vendorDir);
 
 return array(
-    'ValueValidators\\' => array($vendorDir . '/data-values/interfaces/src'),
-    'ValueParsers\\' => array($vendorDir . '/data-values/interfaces/src', $vendorDir . '/data-values/common/src'),
-    'ValueFormatters\\' => array($vendorDir . '/data-values/interfaces/src', $vendorDir . '/data-values/common/src'),
+    'TextCat' => array($vendorDir . '/wikimedia/textcat'),
     'Psr\\Log\\' => array($vendorDir . '/psr/log'),
+    'PEAR' => array($vendorDir . '/pear/pear_exception'),
+    'Net' => array($vendorDir . '/pear/net_socket', $vendorDir . '/pear/net_smtp'),
+    'Mail_mimeDecode' => array($vendorDir . '/pear/mail_mime-decode'),
+    'Mail' => array($vendorDir . '/pear/mail_mime', $vendorDir . '/pear/mail'),
     'Liuggio' => array($vendorDir . '/liuggio/statsd-php-client/src'),
-    'Elastica\\Test' => array($vendorDir . '/ruflin/elastica/test/lib'),
-    'Elastica' => array($vendorDir . '/ruflin/elastica/lib'),
-    'DataValues\\' => array($vendorDir . '/data-values/data-values/src', $vendorDir . '/data-values/common/src'),
-    'Composer\\Installers\\' => array($vendorDir . '/composer/installers/src'),
+    'Less' => array($vendorDir . '/oyejorge/less.php/lib'),
+    'Kafka\\' => array($vendorDir . '/nmred/kafka-php/src'),
+    'DataValues\\' => array($vendorDir . '/data-values/data-values/src'),
+    'Console' => array($vendorDir . '/pear/console_getopt'),
     'ComposerHookHandler' => array($baseDir . '/includes/composer'),
-    '' => array($vendorDir . '/cssjanus/cssjanus/src'),
+    '' => array($vendorDir . '/cssjanus/cssjanus/src', $vendorDir . '/pear/pear-core-minimal/src'),
 );

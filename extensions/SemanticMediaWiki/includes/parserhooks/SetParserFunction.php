@@ -2,9 +2,8 @@
 
 namespace SMW;
 
-use SMW\MediaWiki\Renderer\HtmlTemplateRenderer;
-
 use Parser;
+use SMW\MediaWiki\Renderer\WikitextTemplateRenderer;
 
 /**
  * Class that provides the {{#set}} parser function
@@ -32,7 +31,7 @@ class SetParserFunction {
 	private $messageFormatter;
 
 	/**
-	 * @var HtmlTemplateRenderer
+	 * @var WikitextTemplateRenderer
 	 */
 	private $templateRenderer;
 
@@ -41,9 +40,9 @@ class SetParserFunction {
 	 *
 	 * @param ParserData $parserData
 	 * @param MessageFormatter $messageFormatter
-	 * @param HtmlTemplateRenderer $templateRenderer
+	 * @param WikitextTemplateRenderer $templateRenderer
 	 */
-	public function __construct( ParserData $parserData, MessageFormatter $messageFormatter, HtmlTemplateRenderer $templateRenderer ) {
+	public function __construct( ParserData $parserData, MessageFormatter $messageFormatter, WikitextTemplateRenderer $templateRenderer ) {
 		$this->parserData = $parserData;
 		$this->messageFormatter = $messageFormatter;
 		$this->templateRenderer = $templateRenderer;
@@ -52,11 +51,11 @@ class SetParserFunction {
 	/**
 	 * @since  1.9
 	 *
-	 * @param ArrayFormatter $parameters
+	 * @param ParserParameterProcessor $parameters
 	 *
 	 * @return string|null
 	 */
-	public function parse( ArrayFormatter $parameters ) {
+	public function parse( ParserParameterProcessor $parameters ) {
 
 		$count = 0;
 		$template = '';
@@ -71,18 +70,20 @@ class SetParserFunction {
 
 		foreach ( $parametersToArray as $property => $values ) {
 
-			foreach ( $values as $value ) {
+			$last = count( $values ) - 1; // -1 because the key starts with 0
 
-				$dataValue = DataValueFactory::getInstance()->newPropertyValue(
+			foreach ( $values as $key => $value ) {
+
+				$dataValue = DataValueFactory::getInstance()->newDataValueByText(
 						$property,
 						$value,
 						false,
 						$subject
 					);
 
-				$this->parserData->addDataValue(
-					$dataValue
-				);
+				if ( $this->parserData->canModifySemanticData() ) {
+					$this->parserData->addDataValue( $dataValue );
+				}
 
 				$this->messageFormatter->addFromArray( $dataValue->getErrors() );
 
@@ -91,6 +92,7 @@ class SetParserFunction {
 					$dataValue,
 					$property,
 					$value,
+					$last == $key,
 					$count
 				);
 			}
@@ -102,10 +104,10 @@ class SetParserFunction {
 			->addFromArray( $parameters->getErrors() )
 			->getHtml();
 
-		return array( $html, 'noparse' => true, 'isHTML' => false );
+		return array( $html, 'noparse' => $template === '', 'isHTML' => false );
 	}
 
-	private function addFieldsToTemplate( $template, $dataValue, $property, $value, &$count ) {
+	private function addFieldsToTemplate( $template, $dataValue, $property, $value, $isLastElement, &$count ) {
 
 		if ( $template === '' || !$dataValue->isValid() ) {
 			return '';
@@ -113,6 +115,7 @@ class SetParserFunction {
 
 		$this->templateRenderer->addField( 'property', $property );
 		$this->templateRenderer->addField( 'value', $value );
+		$this->templateRenderer->addField( 'last-element', $isLastElement );
 		$this->templateRenderer->addField( '#', $count++ );
 		$this->templateRenderer->packFieldsForTemplate( $template );
 	}

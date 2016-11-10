@@ -2,9 +2,7 @@
 
 namespace SMW;
 
-use SMW\DataItemException;
 use SMWDataItem;
-use SMWWikiPageValue;
 use Title;
 
 /**
@@ -48,6 +46,11 @@ class DIWikiPage extends SMWDataItem {
 	private $sortkey = null;
 
 	/**
+	 * @var string
+	 */
+	private $contextReference = null;
+
+	/**
 	 * Contructor. We do not bother with too much detailed validation here,
 	 * regarding the known namespaces, canonicity of the dbkey (namespace
 	 * exrtacted?), validity of interwiki prefix (known?), and general use
@@ -65,6 +68,11 @@ class DIWikiPage extends SMWDataItem {
 		// (it can be of type string or float as well, as long as the value is an int)
 		if ( !ctype_digit( ltrim( (string)$namespace, '-' ) ) ) {
 			throw new DataItemException( "Given namespace '$namespace' is not an integer." );
+		}
+
+		// Check for a potential fragment such as Foo#Bar, Bar#_49c8ab
+		if ( strpos( $dbkey, '#' ) !== false ) {
+			list( $dbkey, $subobjectname ) = explode( '#', $dbkey );
 		}
 
 		$this->m_dbkey = $dbkey;
@@ -106,7 +114,7 @@ class DIWikiPage extends SMWDataItem {
 	 * Get the sortkey of the wiki page data item. Note that this is not
 	 * the sortkey that might have been set for the corresponding wiki
 	 * page. To obtain the latter, query for the values of the property
-	 * "new SMWDIProperty( '_SKEY' )".
+	 * "new SMW\DIProperty( '_SKEY' )".
 	 */
 	public function getSortKey() {
 
@@ -115,6 +123,26 @@ class DIWikiPage extends SMWDataItem {
 		}
 
 		return $this->sortkey;
+	}
+
+	/**
+	 * @since  2.3
+	 *
+	 * @param string $contextReference
+	 */
+	public function setContextReference( $contextReference ) {
+		$this->contextReference = $contextReference;
+	}
+
+	/**
+	 * Returns a reference for the processing context (parser etc.).
+	 *
+	 * @since 2.3
+	 *
+	 * @return string
+	 */
+	public function getContextReference() {
+		return $this->contextReference;
 	}
 
 	/**
@@ -132,6 +160,26 @@ class DIWikiPage extends SMWDataItem {
 		);
 	}
 
+	/**
+	 * Returns the base part (without a fragment) of a wikipage representation.
+	 *
+	 * @since 2.4
+	 *
+	 * @return DIWikiPage
+	 */
+	public function asBase() {
+		return new self (
+			$this->m_dbkey,
+			$this->m_namespace,
+			$this->m_interwiki
+		);
+	}
+
+	/**
+	 * @since 1.6
+	 *
+	 * @return string
+	 */
 	public function getSerialization() {
 		$segments = array(
 			$this->m_dbkey,

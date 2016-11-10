@@ -2,14 +2,11 @@
 
 namespace SMW\Tests\Integration\MediaWiki\Import;
 
-use SMW\Tests\Utils\UtilityFactory;
-use SMW\Tests\MwDBaseUnitTestCase;
-
-use SMW\Tests\Utils\ByPageSemanticDataFinder;
-
-use SMW\DIWikiPage;
 use SMW\DIProperty;
-
+use SMW\DIWikiPage;
+use SMW\Tests\MwDBaseUnitTestCase;
+use SMW\Tests\Utils\ByPageSemanticDataFinder;
+use SMW\Tests\Utils\UtilityFactory;
 use Title;
 
 /**
@@ -104,7 +101,7 @@ class RecordDataTypeTest extends MwDBaseUnitTestCase {
 		$valueString = 'ForSingleTestAsPage;ForSingleTestAsText;3333';
 
 		if ( $property->findPropertyTypeID() === '_rec' ) {
-			$valueString = 'ForSingleTestAsPage; ForSingleTestAsText; 3,333';
+			$valueString = 'ForSingleTestAsPage; ForSingleTestAsText; 3333';
 		}
 
 		$expectedRecordTypeValuesAsWikiValue = array(

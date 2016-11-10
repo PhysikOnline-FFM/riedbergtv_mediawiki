@@ -2,9 +2,8 @@
 
 namespace SMW\Test\SQLStore;
 
-use SMWSQLStore3;
-use SMW\Settings;
 use SMW\ApplicationFactory;
+use SMWSQLStore3;
 
 /**
  * @covers \SMWSQLStore3
@@ -25,14 +24,19 @@ class SQLStoreTest extends \PHPUnit_Framework_TestCase {
 
 		$this->store = new SMWSQLStore3();
 
-		$this->store->setConfiguration( Settings::newFromArray( array(
+		$settings = array(
 			'smwgFixedProperties' => array(),
 			'smwgPageSpecialProperties' => array()
-		) ) );
+		);
+
+		foreach ( $settings as $key => $value ) {
+			ApplicationFactory::getInstance()->getSettings()->set( $key, $value );
+		}
 	}
 
 	protected function tearDown() {
 		$this->store->clear();
+		ApplicationFactory::getInstance()->clear();
 
 		parent::tearDown();
 	}
@@ -77,10 +81,14 @@ class SQLStoreTest extends \PHPUnit_Framework_TestCase {
 
 		$defaultPropertyTableCount = count( $this->store->getPropertyTables() );
 
-		$this->store->setConfiguration( Settings::newFromArray( array(
+		$settings = array(
 			'smwgFixedProperties' => array(),
 			'smwgPageSpecialProperties' => array( '_MDAT' )
-		) ) );
+		);
+
+		foreach ( $settings as $key => $value ) {
+			ApplicationFactory::getInstance()->getSettings()->set( $key, $value );
+		}
 
 		$this->store->clear();
 
@@ -97,10 +105,14 @@ class SQLStoreTest extends \PHPUnit_Framework_TestCase {
 
 		$defaultPropertyTableCount = count( $this->store->getPropertyTables() );
 
-		$this->store->setConfiguration( Settings::newFromArray( array(
+		$settings = array(
 			'smwgFixedProperties' => array(),
-			'smwgPageSpecialProperties' => array( '_MDAT', 'Foo'  )
-		) ) );
+			'smwgPageSpecialProperties' => array( '_MDAT', 'Foo' )
+		);
+
+		foreach ( $settings as $key => $value ) {
+			ApplicationFactory::getInstance()->getSettings()->set( $key, $value );
+		}
 
 		$this->store->clear();
 
@@ -117,10 +129,14 @@ class SQLStoreTest extends \PHPUnit_Framework_TestCase {
 
 		$defaultPropertyTableCount = count( $this->store->getPropertyTables() );
 
-		$this->store->setConfiguration( Settings::newFromArray( array(
+		$settings = array(
 			'smwgFixedProperties' => array(),
-			'smwgPageSpecialProperties' => array( '_MDAT', '_MEDIA'  )
-		) ) );
+			'smwgPageSpecialProperties' => array( '_MDAT', '_MEDIA' )
+		);
+
+		foreach ( $settings as $key => $value ) {
+			ApplicationFactory::getInstance()->getSettings()->set( $key, $value );
+		}
 
 		$this->store->clear();
 

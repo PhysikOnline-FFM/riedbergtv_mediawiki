@@ -3,7 +3,6 @@
 namespace SMW;
 
 use SMWQueryResult;
-
 use Title;
 
 /**
@@ -81,7 +80,7 @@ class EmbeddedResultPrinter extends ResultPrinter {
 		// Print all result rows:
 		foreach ( $res->getResults() as $diWikiPage ) {
 			if ( $diWikiPage instanceof DIWikiPage  ) { // ensure that we deal with title-likes
-				$dvWikiPage = DataValueFactory::getInstance()->newDataItemValue( $diWikiPage, null );
+				$dvWikiPage = DataValueFactory::getInstance()->newDataValueByItem( $diWikiPage, null );
 				$result .= $embstart;
 
 				if ( $this->m_showhead ) {

@@ -2,8 +2,8 @@
 
 namespace SMW\Tests;
 
-use SMW\StoreFactory;
 use SMW\Settings;
+use SMW\StoreFactory;
 
 /**
  * @covers \SMW\StoreFactory
@@ -55,20 +55,6 @@ class StoreFactoryTest extends \PHPUnit_Framework_TestCase {
 		$this->assertNotSame(
 			StoreFactory::getStore( '\SMWSQLStore3' ),
 			StoreFactory::getStore( '\SMWSparqlStore' )
-		);
-	}
-
-	public function testSetDefaultStoreForUnitTest() {
-
-		$store = $this->getMockBuilder( '\SMWSQLStore3' )
-			->disableOriginalConstructor()
-			->getMock();
-
-		StoreFactory::setDefaultStoreForUnitTest( $store );
-
-		$this->assertSame(
-			$store,
-			StoreFactory::getStore()
 		);
 	}
 

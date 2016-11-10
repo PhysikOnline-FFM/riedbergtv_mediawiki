@@ -2,8 +2,14 @@
 
 namespace SMW;
 
-use SMWQueryResult, SMWQuery, SMWQueryProcessor, SMWDIWikipage;
-use Sanitizer, WikiPage, ParserOptions, FeedItem, TextContent, Title;
+use FeedItem;
+use ParserOptions;
+use Sanitizer;
+use SMWDIWikiPage;
+use SMWQueryResult;
+use TextContent;
+use Title;
+use WikiPage;
 
 /**
  * Result printer that exports query results as RSS/Atom feed
@@ -54,18 +60,6 @@ final class FeedResultPrinter extends FileExportPrinter {
 	 */
 	public function outputAsFile( SMWQueryResult $queryResult, array $params ) {
 		$this->getResult( $queryResult, $params, SMW_OUTPUT_FILE );
-	}
-
-	/**
-	 * File exports use MODE_INSTANCES on special pages (so that instances are
-	 * retrieved for the export) and MODE_NONE otherwise (displaying just a download link).
-	 *
-	 * @param $mode
-	 *
-	 * @return integer
-	 */
-	public function getQueryMode( $mode ) {
-		return $mode == SMWQueryProcessor::SPECIAL_PAGE ? SMWQuery::MODE_INSTANCES : SMWQuery::MODE_NONE;
 	}
 
 	/**
@@ -210,18 +204,7 @@ final class FeedResultPrinter extends FileExportPrinter {
 		}
 
 		if ( $subject instanceof Title ) {
-			$wikiPage = WikiPage::newFromID( $subject->getArticleID() );
-
-			if ( $wikiPage->exists() ){
-				return new FeedItem(
-					$subject->getPrefixedText(),
-					$this->feedItemDescription( $rowItems, $this->getPageContent( $wikiPage ) ),
-					$subject->getFullURL(),
-					$wikiPage->getTimestamp(),
-					$wikiPage->getUserText(),
-					$this->feedItemComments()
-				);
-			}
+			return $this->newFeedItem( $subject, $rowItems );
 		}
 
 		return array();
@@ -291,6 +274,30 @@ final class FeedResultPrinter extends FileExportPrinter {
 	 */
 	protected function feedItemComments( ) {
 		return '';
+	}
+
+	private function newFeedItem( $subject, $rowItems ) {
+		$wikiPage = WikiPage::newFromID( $subject->getArticleID() );
+
+		if ( $wikiPage !== null && $wikiPage->exists() ){
+			$feedItem = new FeedItem(
+				$subject->getPrefixedText(),
+				$this->feedItemDescription( $rowItems, $this->getPageContent( $wikiPage ) ),
+				$subject->getFullURL(),
+				$wikiPage->getTimestamp(),
+				$wikiPage->getUserText(),
+				$this->feedItemComments()
+			);
+		} else {
+			// #1562
+			$feedItem = new FeedItem(
+				$subject->getPrefixedText(),
+				'',
+				$subject->getFullURL()
+			);
+		}
+
+		return $feedItem;
 	}
 
 	/**

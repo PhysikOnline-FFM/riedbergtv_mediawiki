@@ -2,17 +2,14 @@
 
 namespace SMW\Tests;
 
-use SMW\Tests\Utils\UtilityFactory;
-
-use SMW\StoreUpdater;
-use SMW\ApplicationFactory;
+use SMW\DIProperty;
 use SMW\DIWikiPage;
+use SMW\SemanticData;
+use SMW\StoreUpdater;
 
 /**
  * @covers \SMW\StoreUpdater
- *
- * @group SMW
- * @group SMWExtension
+ * @group semantic-mediawiki
  *
  * @license GNU GPL v2+
  * @since 1.9
@@ -21,43 +18,42 @@ use SMW\DIWikiPage;
  */
 class StoreUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
-	private $applicationFactory;
+	private $testEnvironment;
 	private $semanticDataFactory;
+	private $store;
 
 	protected function setUp() {
 		parent::setUp();
 
-		$this->applicationFactory = ApplicationFactory::getInstance();
-		$this->semanticDataFactory = UtilityFactory::getInstance()->newSemanticDataFactory();
-
-		$settings = array(
+		$this->testEnvironment = new TestEnvironment( array(
 			'smwgPageSpecialProperties'       => array(),
 			'smwgEnableUpdateJobs'            => false,
 			'smwgNamespacesWithSemanticLinks' => array( NS_MAIN => true )
-		);
+		) );
 
-		foreach ( $settings as $key => $value) {
-			$this->applicationFactory->getSettings()->set( $key, $value );
-		}
+		$idTable = $this->getMockBuilder( '\stdClass' )
+			->setMethods( array( 'hasIDFor' ) )
+			->getMock();
 
-		$store = $this->getMockBuilder( '\SMW\Store' )
+		$this->store = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
 			->disableOriginalConstructor()
-			->getMockForAbstractClass();
+			->setMethods( array( 'getObjectIds' ) )
+			->getMock();
 
-		$this->applicationFactory->registerObject( 'Store', $store );
+		$this->store->expects( $this->any() )
+			->method( 'getObjectIds' )
+			->will( $this->returnValue( $idTable ) );
+
+		$this->testEnvironment->registerObject( 'Store', $this->store );
+		$this->semanticDataFactory = $this->testEnvironment->getUtilityFactory()->newSemanticDataFactory();
 	}
 
 	protected function tearDown() {
-		$this->applicationFactory->clear();
-
+		$this->testEnvironment->tearDown();
 		parent::tearDown();
 	}
 
 	public function testCanConstruct() {
-
-		$store = $this->getMockBuilder( '\SMW\Store' )
-			->disableOriginalConstructor()
-			->getMockForAbstractClass();
 
 		$semanticData = $this->getMockBuilder( '\SMW\SemanticData' )
 			->disableOriginalConstructor()
@@ -65,7 +61,7 @@ class StoreUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
 		$this->assertInstanceOf(
 			'\SMW\StoreUpdater',
-			new StoreUpdater( $store, $semanticData )
+			new StoreUpdater( $this->store, $semanticData )
 		);
 	}
 
@@ -73,12 +69,14 @@ class StoreUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
 		$semanticData = $this->semanticDataFactory->newEmptySemanticData( __METHOD__ );
 
-		$store = $this->getMockBuilder( '\SMW\Store' )
-			->disableOriginalConstructor()
-			->getMockForAbstractClass();
+		$instance = new StoreUpdater(
+			$this->store,
+			$semanticData
+		);
 
-		$instance = new StoreUpdater( $store, $semanticData );
-		$this->assertTrue( $instance->doUpdate() );
+		$this->assertTrue(
+			$instance->doUpdate()
+		);
 	}
 
 	/**
@@ -116,12 +114,20 @@ class StoreUpdaterTest  extends \PHPUnit_Framework_TestCase {
 			->method( 'createPage' )
 			->will( $this->returnValue( $wikiPage ) );
 
-		$this->applicationFactory->registerObject( 'PageCreator', $pageCreator );
+		$this->testEnvironment->registerObject( 'PageCreator', $pageCreator );
 
-		$instance = new StoreUpdater( $store, $semanticData );
-		$instance->setUpdateJobsEnabledState( $updateJobStatus );
+		$instance = new StoreUpdater(
+			$store,
+			$semanticData
+		);
 
-		$this->assertTrue( $instance->doUpdate() );
+		$instance->setUpdateJobsEnabledState(
+			$updateJobStatus
+		);
+
+		$this->assertTrue(
+			$instance->doUpdate()
+		);
 	}
 
 	/**
@@ -131,10 +137,22 @@ class StoreUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
 		$semanticData = $this->semanticDataFactory->newEmptySemanticData( __METHOD__ );
 
-		$store = $this->getMockBuilder( '\SMW\Store' )
+		$idTable = $this->getMockBuilder( '\stdClass' )
+			->setMethods( array( 'hasIDFor' ) )
+			->getMock();
+
+		$idTable->expects( $this->atLeastOnce() )
+			->method( 'hasIDFor' )
+			->will( $this->returnValue( true ) );
+
+		$store = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
 			->disableOriginalConstructor()
-			->setMethods( array( 'clearData' ) )
-			->getMockForAbstractClass();
+			->setMethods( array( 'clearData', 'getObjectIds' ) )
+			->getMock();
+
+		$store->expects( $this->any() )
+			->method( 'getObjectIds' )
+			->will( $this->returnValue( $idTable ) );
 
 		$store->expects( $this->once() )
 			->method( 'clearData' )
@@ -152,19 +170,23 @@ class StoreUpdaterTest  extends \PHPUnit_Framework_TestCase {
 			->method( 'createPage' )
 			->will( $this->returnValue( $wikiPage ) );
 
-		$this->applicationFactory->registerObject( 'PageCreator', $pageCreator );
+		$this->testEnvironment->registerObject( 'PageCreator', $pageCreator );
 
-		$instance = new StoreUpdater( $store, $semanticData );
-		$instance->setUpdateJobsEnabledState( $updateJobStatus );
+		$instance = new StoreUpdater(
+			$store,
+			$semanticData
+		);
 
-		$this->assertTrue( $instance->doUpdate() );
+		$instance->setUpdateJobsEnabledState(
+			$updateJobStatus
+		);
+
+		$this->assertTrue(
+			$instance->doUpdate()
+		);
 	}
 
 	public function testDoUpdateForTitleInUnknownNs() {
-
-		$store = $this->getMockBuilder( '\SMW\Store' )
-			->disableOriginalConstructor()
-			->getMockForAbstractClass();
 
 		$wikiPage = new DIWikiPage(
 			'Foo',
@@ -173,16 +195,19 @@ class StoreUpdaterTest  extends \PHPUnit_Framework_TestCase {
 		);
 
 		$semanticData = $this->semanticDataFactory->setSubject( $wikiPage )->newEmptySemanticData();
-		$instance = new StoreUpdater( $store, $semanticData );
 
-		$this->assertInternalType( 'boolean', $instance->doUpdate() );
+		$instance = new StoreUpdater(
+			$this->store,
+			$semanticData
+		);
+
+		$this->assertInternalType(
+			'boolean',
+			$instance->doUpdate()
+		);
 	}
 
 	public function testDoUpdateForSpecialPage() {
-
-		$store = $this->getMockBuilder( '\SMW\Store' )
-			->disableOriginalConstructor()
-			->getMockForAbstractClass();
 
 		$wikiPage = new DIWikiPage(
 			'Foo',
@@ -191,9 +216,77 @@ class StoreUpdaterTest  extends \PHPUnit_Framework_TestCase {
 		);
 
 		$semanticData = $this->semanticDataFactory->setSubject( $wikiPage )->newEmptySemanticData();
-		$instance = new StoreUpdater( $store, $semanticData );
 
-		$this->assertFalse( $instance->doUpdate() );
+		$instance = new StoreUpdater(
+			$this->store,
+			$semanticData
+		);
+
+		$this->assertFalse(
+			$instance->doUpdate()
+		);
+	}
+
+	public function testForYetUnknownRedirectTarget() {
+
+		$revision = $this->getMockBuilder( '\Revision' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$wikiPage = $this->getMockBuilder( '\WikiPage' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$wikiPage->expects( $this->atLeastOnce() )
+			->method( 'getRevision' )
+			->will( $this->returnValue( $revision ) );
+
+		$pageCreator = $this->getMockBuilder( '\SMW\MediaWiki\PageCreator' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$pageCreator->expects( $this->atLeastOnce() )
+			->method( 'createPage' )
+			->will( $this->returnValue( $wikiPage ) );
+
+		$this->testEnvironment->registerObject( 'PageCreator', $pageCreator );
+
+		$subject = new DIWikiPage(
+			'Foo',
+			NS_MAIN
+		);
+
+		$target = new DIWikiPage(
+			'Bar',
+			NS_MAIN
+		);
+
+		$store = $this->getMockBuilder( '\SMW\Store' )
+			->disableOriginalConstructor()
+			->getMockForAbstractClass();
+
+		$store->expects( $this->once() )
+			->method( 'changeTitle' )
+			->with(
+				$this->equalTo( $subject->getTitle() ),
+				$this->equalTo( $target->getTitle() ),
+				$this->anything(),
+				$this->anything() );
+
+		$semanticData = new SemanticData( $subject );
+
+		$semanticData->addPropertyObjectValue(
+			new DIProperty( '_REDI' ),
+			$target
+		);
+
+		$instance = new StoreUpdater(
+			$store,
+			$semanticData
+		);
+
+		$instance->setUpdateJobsEnabledState( true );
+		$instance->doUpdate();
 	}
 
 	public function updateJobStatusProvider() {

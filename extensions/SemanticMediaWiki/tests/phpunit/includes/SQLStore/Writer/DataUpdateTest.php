@@ -2,10 +2,8 @@
 
 namespace SMW\Tests\SQLStore\Writer;
 
-use \SMWSQLStore3Writers;
-use SMW\SemanticData;
 use SMW\DIWikiPage;
-
+use SMWSQLStore3Writers;
 use Title;
 
 /**
@@ -69,9 +67,17 @@ class DataUpdateTest extends \PHPUnit_Framework_TestCase {
 			->method( 'select' )
 			->will( $this->returnValue( array() ) );
 
-		$parentStore = $this->getMockBuilder( '\SMWSQLStore3' )
+		$propertyTableInfoFetcher = $this->getMockBuilder( '\SMW\SQLStore\PropertyTableInfoFetcher' )
 			->disableOriginalConstructor()
 			->getMock();
+
+		$parentStore = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$parentStore->expects( $this->any() )
+			->method( 'getPropertyTableInfoFetcher' )
+			->will( $this->returnValue( $propertyTableInfoFetcher ) );
 
 		$parentStore->expects( $this->atLeastOnce() )
 			->method( 'getObjectIds' )
@@ -126,9 +132,17 @@ class DataUpdateTest extends \PHPUnit_Framework_TestCase {
 			->method( 'selectRow' )
 			->will( $this->returnValue( false ) );
 
-		$parentStore = $this->getMockBuilder( '\SMWSQLStore3' )
+		$propertyTableInfoFetcher = $this->getMockBuilder( '\SMW\SQLStore\PropertyTableInfoFetcher' )
 			->disableOriginalConstructor()
 			->getMock();
+
+		$parentStore = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$parentStore->expects( $this->any() )
+			->method( 'getPropertyTableInfoFetcher' )
+			->will( $this->returnValue( $propertyTableInfoFetcher ) );
 
 		$parentStore->expects( $this->atLeastOnce() )
 			->method( 'getObjectIds' )
@@ -179,9 +193,17 @@ class DataUpdateTest extends \PHPUnit_Framework_TestCase {
 			->method( 'select' )
 			->will( $this->returnValue( array() ) );
 
-		$parentStore = $this->getMockBuilder( '\SMWSQLStore3' )
+		$propertyTableInfoFetcher = $this->getMockBuilder( '\SMW\SQLStore\PropertyTableInfoFetcher' )
 			->disableOriginalConstructor()
 			->getMock();
+
+		$parentStore = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$parentStore->expects( $this->any() )
+			->method( 'getPropertyTableInfoFetcher' )
+			->will( $this->returnValue( $propertyTableInfoFetcher ) );
 
 		$parentStore->expects( $this->atLeastOnce() )
 			->method( 'getObjectIds' )
@@ -195,7 +217,7 @@ class DataUpdateTest extends \PHPUnit_Framework_TestCase {
 		$instance->doDataUpdate( $semanticData );
 	}
 
-	public function testUseTransactionForUpdate() {
+	public function testAtomicTransactionOnDataUpdate() {
 
 		$title = Title::newFromText( __METHOD__, NS_MAIN );
 
@@ -225,23 +247,26 @@ class DataUpdateTest extends \PHPUnit_Framework_TestCase {
 			->getMock();
 
 		$database->expects( $this->atLeastOnce() )
-			->method( 'beginTransaction' );
+			->method( 'beginAtomicTransaction' );
 
 		$database->expects( $this->atLeastOnce() )
-			->method( 'commitTransaction' );
+			->method( 'endAtomicTransaction' );
 
 		$database->expects( $this->once() )
 			->method( 'select' )
 			->will( $this->returnValue( array() ) );
 
-		$parentStore = $this->getMockBuilder( '\SMWSQLStore3' )
+		$propertyTableInfoFetcher = $this->getMockBuilder( '\SMW\SQLStore\PropertyTableInfoFetcher' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$parentStore = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
 			->disableOriginalConstructor()
 			->getMock();
 
 		$parentStore->expects( $this->any() )
-			->method( 'canUseUpdateFeature' )
-			->will( $this->returnCallback( function( $flag ) { return $flag === SMW_TRX_UPDATE;
-			} ) );
+			->method( 'getPropertyTableInfoFetcher' )
+			->will( $this->returnValue( $propertyTableInfoFetcher ) );
 
 		$parentStore->expects( $this->atLeastOnce() )
 			->method( 'getObjectIds' )

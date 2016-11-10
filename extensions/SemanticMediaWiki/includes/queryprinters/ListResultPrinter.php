@@ -2,12 +2,11 @@
 
 namespace SMW;
 
-use SMWQueryResult;
-use SMWDataItem;
-use SMWResultArray;
-
-use Sanitizer;
 use Html;
+use Sanitizer;
+use SMWDataItem;
+use SMWQueryResult;
+use SMWResultArray;
 
 /**
  * Print query results in lists.
@@ -504,6 +503,12 @@ class ListResultPrinter extends ResultPrinter {
 		$params['outrotemplate'] = array(
 			'message' => 'smw-paramdesc-outrotemplate',
 			'default' => '',
+		);
+
+		$params['import-annotation'] = array(
+			'message' => 'smw-paramdesc-import-annotation',
+			'type' => 'boolean',
+			'default' => false
 		);
 
 		return $params;

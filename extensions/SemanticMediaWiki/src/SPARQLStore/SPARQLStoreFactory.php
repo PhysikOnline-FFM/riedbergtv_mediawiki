@@ -2,14 +2,15 @@
 
 namespace SMW\SPARQLStore;
 
-use SMW\Store;
-use SMW\StoreFactory;
-use SMW\ConnectionManager;
+use SMW\ApplicationFactory;
 use SMW\CircularReferenceGuard;
+use SMW\ConnectionManager;
 use SMW\SPARQLStore\QueryEngine\CompoundConditionBuilder;
 use SMW\SPARQLStore\QueryEngine\EngineOptions;
 use SMW\SPARQLStore\QueryEngine\QueryEngine;
 use SMW\SPARQLStore\QueryEngine\QueryResultFactory;
+use SMW\Store;
+use SMW\StoreFactory;
 
 /**
  * @license GNU GPL v2+
@@ -25,12 +26,18 @@ class SPARQLStoreFactory {
 	private $store;
 
 	/**
+	 * @var ApplicationFactory
+	 */
+	private $applicationFactory;
+
+	/**
 	 * @since 2.2
 	 *
 	 * @param SPARQLStore $store
 	 */
 	public function __construct( SPARQLStore $store ) {
 		$this->store = $store;
+		$this->applicationFactory = ApplicationFactory::getInstance();
 	}
 
 	/**
@@ -49,19 +56,28 @@ class SPARQLStoreFactory {
 	 */
 	public function newMasterQueryEngine() {
 
+		$engineOptions = new EngineOptions();
+
 		$circularReferenceGuard = new CircularReferenceGuard( 'sparql-query' );
 		$circularReferenceGuard->setMaxRecursionDepth( 2 );
 
-		$compoundConditionBuilder = new CompoundConditionBuilder();
+		$compoundConditionBuilder = new CompoundConditionBuilder(
+			$engineOptions
+		);
+
 		$compoundConditionBuilder->setCircularReferenceGuard(
 			$circularReferenceGuard
+		);
+
+		$compoundConditionBuilder->setPropertyHierarchyLookup(
+			$this->applicationFactory->newPropertyHierarchyLookup()
 		);
 
 		$queryEngine = new QueryEngine(
 			$this->store->getConnection( 'sparql' ),
 			$compoundConditionBuilder,
 			new QueryResultFactory( $this->store ),
-			new EngineOptions()
+			$engineOptions
 		);
 
 		return $queryEngine;
@@ -76,9 +92,14 @@ class SPARQLStoreFactory {
 
 		$connectionManager = new ConnectionManager();
 
+		$repositoryConnectionProvider = new RepositoryConnectionProvider();
+		$repositoryConnectionProvider->setHttpVersionTo(
+			$this->applicationFactory->getSettings()->get( 'smwgSparqlRepositoryConnectorForcedHttpVersion' )
+		);
+
 		$connectionManager->registerConnectionProvider(
 			'sparql',
-			new RepositoryConnectionProvider()
+			$repositoryConnectionProvider
 		);
 
 		return $connectionManager;

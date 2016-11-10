@@ -2,15 +2,13 @@
 
 namespace SMW\Exporter;
 
-use SMW\Exporter\Element\ExpResource;
-use SMW\Exporter\Element\ExpNsResource;
-use SMW\Exporter\Element\ExpElement;
-use SMW\Exporter\Element\ExpLiteral;
+use RuntimeException;
 use SMW\Exporter\Element;
-use SMWExporter as Exporter;
+use SMW\Exporter\Element\ExpLiteral;
+use SMW\Exporter\Element\ExpResource;
 use SMWDataItem as DataItem;
 use SMWDITime as DITime;
-use RuntimeException;
+use SMWExporter as Exporter;
 
 /**
  * @license GNU GPL v2+
@@ -25,6 +23,11 @@ class DataItemToElementEncoder {
 	 * @var array
 	 */
 	private $dataItemEncoderMap = array();
+
+	/**
+	 * @var array
+	 */
+	private $dataItemToElementMapper = array();
 
 	/**
 	 * @since 2.2
@@ -52,7 +55,11 @@ class DataItemToElementEncoder {
 			$this->initDataItemEncoderMap();
 		}
 
-		$element = $this->tryToEncodeDataItem( $dataItem );
+		if ( $this->dataItemToElementMapper === array() ) {
+			$this->initDataItemToElementMapper();
+		}
+
+		$element = $this->tryToMapDataItem( $dataItem );
 
 		if ( $element instanceof Element || $element === null ) {
 			return $element;
@@ -61,7 +68,13 @@ class DataItemToElementEncoder {
 		throw new RuntimeException( 'Encoder did not return a valid element' );
 	}
 
-	private function tryToEncodeDataItem( $dataItem ) {
+	private function tryToMapDataItem( $dataItem ) {
+
+		foreach ( $this->dataItemToElementMapper as $dataItemToElementMapper ) {
+			if ( $dataItemToElementMapper->isMapperFor( $dataItem ) ) {
+				return $dataItemToElementMapper->getElementFor( $dataItem );
+			}
+		}
 
 		foreach ( $this->dataItemEncoderMap as $dataItemType => $dataItemEncoder ) {
 			if ( $dataItemType === $dataItem->getDIType() ) {
@@ -70,6 +83,10 @@ class DataItemToElementEncoder {
 		}
 
 		return null;
+	}
+
+	private function initDataItemToElementMapper() {
+		$this->dataItemToElementMapper[] = new ConceptToExpDataMapper();
 	}
 
 	private function initDataItemEncoderMap() {
@@ -153,11 +170,6 @@ class DataItemToElementEncoder {
 
 		// Not implemented
 		$this->registerDataItemEncoder( DataItem::TYPE_GEO, function( $dataItem ) {
-			return null;
-		} );
-
-		// Not implemented
-		$this->registerDataItemEncoder( DataItem::TYPE_CONCEPT, function( $dataItem ) {
 			return null;
 		} );
 	}

@@ -3,26 +3,19 @@
 namespace SMW;
 
 /**
- * Encapsulate Semantic MediaWiki settings
- *
- * @note Initial idea has been borrowed from EducationProgram Extension/Jeroen De Dauw
- *
- *
- * @license GNU GPL v2+
- * @since   1.9
- *
- * @author mwjames
- */
-
-/**
  * Encapsulate Semantic MediaWiki settings to access values through a
  * specified interface
  *
- * @ingroup SMW
+ * @license GNU GPL v2+
+ * @since 1.9
+ *
+ * @author mwjames
  */
-class Settings extends SimpleDictionary {
+class Settings extends Options {
 
-	/** @var Settings */
+	/**
+	 * @var Settings
+	 */
 	private static $instance = null;
 
 	/**
@@ -44,8 +37,11 @@ class Settings extends SimpleDictionary {
 	public static function newFromGlobals() {
 
 		$settings = array(
-			'smwgScriptPath' => $GLOBALS['smwgScriptPath'],
+			'smwgScriptPath' => isset( $GLOBALS['smwgScriptPath'] ) ? $GLOBALS['smwgScriptPath'] : '',
 			'smwgIP' => $GLOBALS['smwgIP'],
+			'smwgExtraneousLanguageFileDir' => $GLOBALS['smwgExtraneousLanguageFileDir'],
+			'smwgSemanticsEnabled' => $GLOBALS['smwgSemanticsEnabled'],
+			'smwgEnabledCompatibilityMode' => $GLOBALS['smwgEnabledCompatibilityMode'],
 			'smwgDefaultStore' => $GLOBALS['smwgDefaultStore'],
 			'smwgSparqlDatabaseConnector' => $GLOBALS['smwgSparqlDatabaseConnector'],
 			'smwgSparqlDatabase' => $GLOBALS['smwgSparqlDatabase'],
@@ -110,14 +106,18 @@ class Settings extends SimpleDictionary {
 			'smwgAutoRefreshSubject' => $GLOBALS['smwgAutoRefreshSubject'],
 			'smwgAutoRefreshOnPurge' => $GLOBALS['smwgAutoRefreshOnPurge'],
 			'smwgAutoRefreshOnPageMove' => $GLOBALS['smwgAutoRefreshOnPageMove'],
-			'smwgContLang' => $GLOBALS['smwgContLang'],
+			'smwgContLang' => isset( $GLOBALS['smwgContLang'] ) ? $GLOBALS['smwgContLang'] : '',
 			'smwgMaxPropertyValues' => $GLOBALS['smwgMaxPropertyValues'],
 			'smwgQSubpropertyDepth' => $GLOBALS['smwgQSubpropertyDepth'],
 			'smwgNamespace' => $GLOBALS['smwgNamespace'],
-			'smwgMasterStore' => $GLOBALS['smwgMasterStore'],
-			'smwgIQRunningNumber' => $GLOBALS['smwgIQRunningNumber'],
-			'smwgCacheType' => $GLOBALS['smwgCacheType'],
+			'smwgMasterStore' => isset( $GLOBALS['smwgMasterStore'] ) ? $GLOBALS['smwgMasterStore'] : '',
+			'smwgIQRunningNumber' => isset( $GLOBALS['smwgIQRunningNumber'] ) ? $GLOBALS['smwgIQRunningNumber'] : 0,
 			'smwgCacheUsage' => $GLOBALS['smwgCacheUsage'],
+			'smwgCacheType' => $GLOBALS['smwgCacheType'],
+			'smwgMainCacheType' => $GLOBALS['smwgMainCacheType'],
+			'smwgValueLookupCacheType' => $GLOBALS['smwgValueLookupCacheType'],
+			'smwgValueLookupCacheLifetime' => $GLOBALS['smwgValueLookupCacheLifetime'],
+			'smwgValueLookupFeatures' => $GLOBALS['smwgValueLookupFeatures'],
 			'smwgFixedProperties' => $GLOBALS['smwgFixedProperties'],
 			'smwgPropertyLowUsageThreshold' => $GLOBALS['smwgPropertyLowUsageThreshold'],
 			'smwgPropertyZeroCountDisplay' => $GLOBALS['smwgPropertyZeroCountDisplay'],
@@ -126,11 +126,19 @@ class Settings extends SimpleDictionary {
 			'smwgFactboxCacheRefreshOnPurge' => $GLOBALS['smwgFactboxCacheRefreshOnPurge'],
 			'smwgQueryProfiler' => $GLOBALS['smwgQueryProfiler'],
 			'smwgEnabledSpecialPage' => $GLOBALS['smwgEnabledSpecialPage'],
-			'smwgOnDeleteAction' => $GLOBALS['smwgOnDeleteAction'],
 			'smwgFallbackSearchType' => $GLOBALS['smwgFallbackSearchType'],
 			'smwgEnabledEditPageHelp' => $GLOBALS['smwgEnabledEditPageHelp'],
-			'smwgUFeatures' => $GLOBALS['smwgUFeatures'],
-			'smwgLogEventTypes' => $GLOBALS['smwgLogEventTypes']
+			'smwgSparqlQFeatures' => $GLOBALS['smwgSparqlQFeatures'],
+			'smwgEnabledDeferredUpdate' => $GLOBALS['smwgEnabledDeferredUpdate'],
+			'smwgEnabledHttpDeferredJobRequest' => $GLOBALS['smwgEnabledHttpDeferredJobRequest'],
+			'smwgEnabledQueryDependencyLinksStore' => $GLOBALS['smwgEnabledQueryDependencyLinksStore'],
+			'smwgQueryDependencyPropertyExemptionlist' => $GLOBALS['smwgQueryDependencyPropertyExemptionlist'],
+			'smwgQueryDependencyAffiliatePropertyDetectionlist' => $GLOBALS['smwgQueryDependencyAffiliatePropertyDetectionlist'],
+			'smwgExportBCNonCanonicalFormUse' => $GLOBALS['smwgExportBCNonCanonicalFormUse'],
+			'smwgExportBCAuxiliaryUse' => $GLOBALS['smwgExportBCAuxiliaryUse'],
+			'smwgEnabledInTextAnnotationParserStrictMode' => $GLOBALS['smwgEnabledInTextAnnotationParserStrictMode'],
+			'smwgSparqlRepositoryConnectorForcedHttpVersion' => $GLOBALS['smwgSparqlRepositoryConnectorForcedHttpVersion'],
+			'smwgDVFeatures' => $GLOBALS['smwgDVFeatures'],
 		);
 
 		$settings = $settings + array(
@@ -198,12 +206,10 @@ class Settings extends SimpleDictionary {
 			throw new InvalidSettingsArgumentException( "'{$key}' is not a valid settings key" );
 		}
 
-		return $this->lookup( $key );
+		return parent::get( $key );
 	}
 
 	/**
-	 * Resets the instance
-	 *
 	 * @since 1.9
 	 */
 	public static function clear() {
@@ -211,18 +217,12 @@ class Settings extends SimpleDictionary {
 	}
 
 	/**
-	 * Iterates over a nested array to find a element
-	 *
-	 * @since 1.9
-	 *
-	 * @param string $key
-	 *
-	 * @return mixed|null
+	 * Iterates over a nested array to find an element
 	 */
 	private function doIterate( $key ) {
 
 		$iterator = new \RecursiveIteratorIterator(
-			new \RecursiveArrayIterator( $this->toArray() ),
+			new \RecursiveArrayIterator( $this->getOptions() ),
 			\RecursiveIteratorIterator::CHILD_FIRST
 		);
 

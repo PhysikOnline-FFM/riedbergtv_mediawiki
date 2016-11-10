@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @ingroup SMWDataValues
  */
@@ -39,9 +40,9 @@ class SMWPropertyListValue extends SMWDataValue {
 			$propertyName = smwfNormalTitleText( $propertyName );
 
 			try {
-				$diProperty = SMWDIProperty::newFromUserLabel( $propertyName );
+				$diProperty = SMW\DIProperty::newFromUserLabel( $propertyName );
 			} catch ( SMWDataItemException $e ) {
-				$diProperty = new SMWDIProperty( 'Error' );
+				$diProperty = new SMW\DIProperty( 'Error' );
 				$this->addError( wfMessage( 'smw_noproperty', $propertyName )->inContentLanguage()->text() );
 			}
 
@@ -60,25 +61,33 @@ class SMWPropertyListValue extends SMWDataValue {
 	 * @return boolean
 	 */
 	protected function loadDataItem( SMWDataItem $dataItem ) {
-		if ( $dataItem instanceof SMWDIBlob ) {
-			$this->m_dataitem = $dataItem;
-			$this->m_diProperties = array();
 
-			foreach ( explode( ';', $dataItem->getString() ) as $propertyKey ) {
-				try {
-					$this->m_diProperties[] = new SMWDIProperty( $propertyKey );
-				} catch ( SMWDataItemException $e ) {
-					$this->m_diProperties[] = new SMWDIProperty( 'Error' );
-					$this->addError( wfMessage( 'smw_parseerror' )->inContentLanguage()->text() );
-				}
-			}
-
-			$this->m_caption = false;
-
-			return true;
-		} else {
+		if ( !$dataItem instanceof SMWDIBlob ) {
 			return false;
 		}
+
+		$this->m_dataitem = $dataItem;
+		$this->m_diProperties = array();
+
+		foreach ( explode( ';', $dataItem->getString() ) as $propertyKey ) {
+			$property = null;
+
+			try {
+				$property = new SMW\DIProperty( $propertyKey );
+			} catch ( SMWDataItemException $e ) {
+				$property = new SMW\DIProperty( 'Error' );
+				$this->addError( wfMessage( 'smw_parseerror' )->inContentLanguage()->text() );
+			}
+
+			if ( $property instanceof SMWDIProperty ) {
+				 // Find a possible redirect
+				$this->m_diProperties[] = $property->getRedirectTarget();
+			}
+		}
+
+		$this->m_caption = false;
+
+		return true;
 	}
 
 	public function getShortWikiText( $linked = null ) {
@@ -117,7 +126,7 @@ class SMWPropertyListValue extends SMWDataValue {
 			if ( $result !== '' ) {
 				$result .= $sep;
 			}
-			$propertyValue = \SMW\DataValueFactory::getInstance()->newDataItemValue( $diProperty, null );
+			$propertyValue = \SMW\DataValueFactory::getInstance()->newDataValueByItem( $diProperty, null );
 			$result .= $this->makeValueOutputText( $type, $propertyValue, $linker );
 		}
 		return $result;

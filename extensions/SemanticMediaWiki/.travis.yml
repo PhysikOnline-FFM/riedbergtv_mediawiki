@@ -1,52 +1,62 @@
 language: php
 
-env:
-  - THENEEDFORTHIS=FAIL
-
 matrix:
   fast_finish: true
   include:
-    - env: DB=mysql; MW=master@5cc1f1d; TYPE=coverage
-      php: 5.3
-    - env: DB=mysql; MW=1.23.5; FUSEKI=1.1.1
-      php: 5.4
+    - env: DB=mysql; MW=1.26.3; TYPE=coverage; PHPUNIT=4.8.*
+      php: 7.0
+    - env: DB=mysql; MW=1.26.3; FUSEKI=2.4.0
+      php: 5.5
     - env: DB=mysql; MW=1.23.5; VIRTUOSO=6.1
       php: 5.4
-    - env: DB=mysql; MW=1.24.1; SESAME=2.7.14
-      php: 5.4
+    - env: DB=mysql; MW=1.25.6; SESAME=2.8.7
+      php: 5.3
     - env: DB=sqlite; MW=1.22.12; SITELANG=ja
       php: 5.5
     - env: DB=postgres; MW=1.19.20;
       php: 5.4
-    - env: DB=mysql; MW=master@5cc1f1d; PHPUNIT=4.3.*; TYPE=benchmark
+    - env: DB=mysql; MW=1.24.1; BLAZEGRAPH=1.5.2; PHPUNIT=4.7.*
+      php: 5.6
+    - env: DB=mysql; MW=1.25.6; TYPE=benchmark; PHPUNIT=4.3.*;
       php: hhvm
-    - env: DB=sqlite; MW=master@5cc1f1d; PHPUNIT=4.3.*; TYPE=debug
-      php: hhvm-nightly
-    - env: DB=sqlite; MW=master@5cc1f1d; TYPE=composer
+    - env: DB=sqlite; MW=master; PHPUNIT=4.6.*
+      php: hhvm
+    - env: DB=sqlite; MW=1.25.6; TYPE=composer
       php: 5.6
     - env: DB=mysql; MW=1.19.20; TYPE=relbuild
       php: 5.4
-
-  exclude:
-    - env: THENEEDFORTHIS=FAIL
   allow_failures:
+    - env: DB=mysql; MW=1.26.3; TYPE=coverage; PHPUNIT=4.8.*
     - env: DB=mysql; MW=1.19.20; TYPE=relbuild
-    - env: DB=sqlite; MW=master@5cc1f1d; TYPE=composer
-    - php: hhvm-nightly
+    - env: DB=sqlite; MW=1.25.6; TYPE=composer
+    - env: DB=sqlite; MW=master; PHPUNIT=4.6.*
+    - env: DB=mysql; MW=1.25.6; TYPE=benchmark; PHPUNIT=4.3.*;
+    - env: DB=mysql; MW=1.25.6; SESAME=2.8.7
+
+# Travis support wrote (Tomcat + Java):
+# bug in the JDK: http://bugs.java.com/bugdatabase/view_bug.do?bug_id=7089443.
+# The hostname for the precise-gce platform is longer than 64 characters on the
+# VM your job is running on
+before_install:
+  - cat /etc/hosts # optionally check the content *before*
+  - sudo hostname "$(hostname | cut -c1-63)"
+  - sed -e "s/^\\(127\\.0\\.0\\.1.*\\)/\\1 $(hostname | cut -c1-63)/" /etc/hosts | sudo tee /etc/hosts
+  - cat /etc/hosts # optionally check the content *after*
 
 install:
-  - bash ./build/travis/install-services.sh
-  - bash ./build/travis/install-mediawiki.sh
-  - bash ./build/travis/install-semantic-mediawiki.sh
+  - travis_retry composer self-update
+  - bash ./tests/travis/install-services.sh
+  - bash ./tests/travis/install-mediawiki.sh
+  - bash ./tests/travis/install-semantic-mediawiki.sh
 
 before_script:
-  - bash ./build/travis/update-configuration-settings.sh
+  - bash ./tests/travis/update-configuration-settings.sh
 
 script:
-  - bash ./build/travis/run-tests.sh
+  - bash ./tests/travis/run-tests.sh
 
 after_success:
-  - bash ./build/travis/upload-coverage-report.sh
+  - bash ./tests/travis/upload-coverage-report.sh
 
 notifications:
   irc:
@@ -54,3 +64,7 @@ notifications:
       - "chat.freenode.net#semantic-mediawiki"
     on_success: never
     on_failure: always
+
+cache:
+  directories:
+    - $HOME/.composer/cache

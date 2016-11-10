@@ -2,6 +2,7 @@
 /**
  * Aliases for special pages
  *
+ * @author أحمد غربية <ahmad@arabdigitalexpression.org>
  * @file
  * @ingroup Extensions
  * @ingroup SMWLanguage
@@ -25,6 +26,7 @@ $specialPageAliases['en'] = array(
 	'URIResolver' => array( 'URIResolver' ),
 	'UnusedProperties' => array( 'UnusedProperties' ),
 	'WantedProperties' => array( 'WantedProperties' ),
+	'DeferredRequestDispatcher' => array( 'DeferredRequestDispatcher' ),
 );
 
 /** Afrikaans (Afrikaans) */
@@ -39,15 +41,15 @@ $specialPageAliases['af'] = array(
 $specialPageAliases['ar'] = array(
 	'Ask' => array( 'سؤال' ),
 	'Browse' => array( 'تصفح' ),
-	'ExportRDF' => array( 'تصدير_آر_دي_إف' ),
-	'PageProperty' => array( 'خاصية_الصفحة' ),
+	'ExportRDF' => array( 'تصدير_RDF' ),
+	'PageProperty' => array( 'صفحة_خصيصة' ),
 	'Properties' => array( 'خصائص' ),
-	'Concepts' => array( 'مبادئ' ),
-	'SMWAdmin' => array( 'إداري_سمو', 'إداري_ميدياويكي_دلالية' ),
-	'SearchByProperty' => array( 'بحث_بواسطة_الخاصية' ),
-	'SemanticStatistics' => array( 'إحصاءات_سيمانتيك' ),
+	'Concepts' => array( 'مفاهيم' ),
+	'SMWAdmin' => array( 'إدارة_سمو', 'إدارة_ميدياويكي_دلالية' ),
+	'SearchByProperty' => array( 'بحث_بالخصيصة' ),
+	'SemanticStatistics' => array( 'إحصاءات_دلاليّة' ),
 	'Types' => array( 'أنواع' ),
-	'URIResolver' => array( 'محلل_يو_آر_آي' ),
+	'URIResolver' => array( 'حال_URI' ),
 	'UnusedProperties' => array( 'خصائص_غير_مستخدمة' ),
 	'WantedProperties' => array( 'خصائص_مطلوبة' ),
 );
@@ -64,7 +66,7 @@ $specialPageAliases['arc'] = array(
 	'WantedProperties' => array( 'ܕܝܠܝܘ̈ܬܐ_ܣܢܝܩ̈ܬܐ' ),
 );
 
-/** Egyptian Spoken Arabic (مصرى) */
+/** Egyptian Arabic (مصرى) */
 $specialPageAliases['arz'] = array(
 	'Ask' => array( 'سؤال' ),
 	'Browse' => array( 'براوز' ),
@@ -487,6 +489,7 @@ $specialPageAliases['lb'] = array(
 	'PageProperty' => array( 'Säiten-Eegeschaften' ),
 	'Properties' => array( 'Eegeschaften' ),
 	'Concepts' => array( 'Konzepter' ),
+	'SMWAdmin' => array( 'SMW-Administratioun' ),
 	'SearchByProperty' => array( 'No_Eegeschaft_sichen' ),
 	'SemanticStatistics' => array( 'Semantesch_Statistiken' ),
 	'Types' => array( 'Datentypen' ),

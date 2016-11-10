@@ -8,6 +8,7 @@ use SMW\ApplicationFactory;
 use SMW\DataValueFactory;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
+use SMW\Localizer;
 use SMW\MediaWiki\HtmlTableRenderer;
 use SMW\MediaWiki\MessageBuilder;
 use SMW\ParserData;
@@ -16,7 +17,6 @@ use SMW\SemanticData;
 use SMW\Store;
 use SMWInfolink;
 use SMWSemanticData;
-use SMW\Localizer;
 
 /**
  * Class handling the "Factbox" content rendering
@@ -273,17 +273,16 @@ class Factbox {
 	 * @return string|null
 	 */
 	protected function createTable( SemanticData $semanticData ) {
-		Profiler::In( __METHOD__ );
 
 		$this->htmlTableRenderer = $this->applicationFactory->newMwCollaboratorFactory()->newHtmlTableRenderer();
 
 		$text = '';
 
 		// Hook deprecated with SMW 1.9 and will vanish with SMW 1.11
-		wfRunHooks( 'smwShowFactbox', array( &$text, $semanticData ) );
+		\Hooks::run( 'smwShowFactbox', array( &$text, $semanticData ) );
 
 		// Hook since 1.9
-		if ( wfRunHooks( 'SMW::Factbox::BeforeContentGeneration', array( &$text, $semanticData ) ) ) {
+		if ( \Hooks::run( 'SMW::Factbox::BeforeContentGeneration', array( &$text, $semanticData ) ) ) {
 
 			$this->getTableHeader( $semanticData->getSubject() );
 			$this->getTableContent( $semanticData );
@@ -291,11 +290,10 @@ class Factbox {
 			$text .= Html::rawElement( 'div',
 				array( 'class' => 'smwfact' ),
 				$this->htmlTableRenderer->getHeaderItems() .
-				$this->htmlTableRenderer->getHtml( array( 'class' => 'smwfacttable' ) )
+				$this->htmlTableRenderer->getHtml( array( 'class' => 'smwfacttable', 'cellspacing' => "0", 'cellpadding' => "2" ) )
 			);
 		}
 
-		Profiler::Out( __METHOD__ );
 		return $text;
 	}
 
@@ -308,10 +306,10 @@ class Factbox {
 	 */
 	protected function getTableHeader( DIWikiPage $subject ) {
 
-		$dataValue = $this->dataValueFactory->newDataItemValue( $subject, null );
+		$dataValue = $this->dataValueFactory->newDataValueByItem( $subject, null );
 
 		$browselink = SMWInfolink::newBrowsingLink(
-			$dataValue->getText(),
+			$dataValue->getPreferredCaption(),
 			$dataValue->getWikiValue(),
 			'swmfactboxheadbrowse'
 		);
@@ -341,7 +339,6 @@ class Factbox {
 	 * @param SMWSemanticData $semanticData
 	 */
 	protected function getTableContent( SemanticData $semanticData ) {
-		Profiler::In( __METHOD__ );
 
 		// Do exclude some tags from processing otherwise the display
 		// can become distorted due to unresolved/open tags (see Bug 23185)
@@ -349,7 +346,7 @@ class Factbox {
 		$attributes = array();
 
 		foreach ( $semanticData->getProperties() as $propertyDi ) {
-			$propertyDv = $this->dataValueFactory->newDataItemValue( $propertyDi, null );
+			$propertyDv = $this->dataValueFactory->newDataValueByItem( $propertyDi, null );
 
 			if ( !$propertyDi->isShown() ) {
 				// showing this is not desired, hide
@@ -361,6 +358,7 @@ class Factbox {
 				$attributes['property'] = array( 'class' => 'smwpropname' );
 				$attributes['values'] = array( 'class' => 'smwprops' );
 			} elseif ( $propertyDv->isVisible() ) {
+				$propertyDv->setCaption( $propertyDi->getLabel() );
 				// Predefined property
 				$attributes['property'] = array( 'class' => 'smwspecname' );
 				$attributes['values'] = array( 'class' => 'smwspecs' );
@@ -374,13 +372,14 @@ class Factbox {
 			$valuesHtml = array();
 			foreach ( $semanticData->getPropertyValues( $propertyDi ) as $dataItem ) {
 
-				$dataValue = $this->dataValueFactory->newDataItemValue( $dataItem, $propertyDi );
-				$dataValue->setServiceLinksRenderState( false );
+				$dataValue = $this->dataValueFactory->newDataValueByItem( $dataItem, $propertyDi );
+				$dataValue->setOutputFormat( 'LOCL' );
+				$dataValue->disableServiceLinks();
 
 				if ( $dataValue->isValid() ) {
 					$valuesHtml[] = Sanitizer::removeHTMLtags(
 						$dataValue->getLongWikiText( true ), null, array(), array(), $excluded
-						) . $dataValue->getInfolinkText( SMW_OUTPUT_WIKI );
+						 ) . $this->getInfolink( $dataValue );
 				}
 			}
 
@@ -397,8 +396,29 @@ class Factbox {
 
 			$this->htmlTableRenderer->addRow();
 		}
+	}
 
-		Profiler::Out( __METHOD__ );
+	private function getInfolink( $dataValue ) {
+
+		if ( $dataValue->getProperty()->getKey() !== '_SOBJ' ) {
+			return $dataValue->getInfolinkText( SMW_OUTPUT_WIKI );
+		}
+
+		$value = $dataValue->getWikiValue();
+
+		// InTextAnnotationParser will detect :: therefore avoid link
+		// breakage by encoding the string
+		if ( strpos( $value, '::' ) !== false ) {
+			$value = str_replace( ':', '-3A', $value );
+		}
+
+		$browselink = SMWInfolink::newBrowsingLink(
+			' +',
+			$value,
+			'smwbrowse'
+		);
+
+		return $browselink->getWikiText();
 	}
 
 }

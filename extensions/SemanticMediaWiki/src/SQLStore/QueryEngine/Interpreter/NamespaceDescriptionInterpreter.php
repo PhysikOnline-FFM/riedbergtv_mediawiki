@@ -4,9 +4,9 @@ namespace SMW\SQLStore\QueryEngine\Interpreter;
 
 use SMW\Query\Language\Description;
 use SMW\Query\Language\NamespaceDescription;
-use SMW\SQLStore\QueryEngine\QueryBuilder;
 use SMW\SQLStore\QueryEngine\DescriptionInterpreter;
 use SMW\SQLStore\QueryEngine\QuerySegment;
+use SMW\SQLStore\QueryEngine\QuerySegmentListBuilder;
 use SMWSql3SmwIds;
 
 /**
@@ -20,17 +20,17 @@ use SMWSql3SmwIds;
 class NamespaceDescriptionInterpreter implements DescriptionInterpreter {
 
 	/**
-	 * @var QueryBuilder
+	 * @var QuerySegmentListBuilder
 	 */
-	private $queryBuilder;
+	private $querySegmentListBuilder;
 
 	/**
 	 * @since 2.2
 	 *
-	 * @param QueryBuilder $queryBuilder
+	 * @param QuerySegmentListBuilder $querySegmentListBuilder
 	 */
-	public function __construct( QueryBuilder $queryBuilder ) {
-		$this->queryBuilder = $queryBuilder;
+	public function __construct( QuerySegmentListBuilder $querySegmentListBuilder ) {
+		$this->querySegmentListBuilder = $querySegmentListBuilder;
 	}
 
 	/**
@@ -53,10 +53,12 @@ class NamespaceDescriptionInterpreter implements DescriptionInterpreter {
 	 */
 	public function interpretDescription( Description $description ) {
 
+		$db = $this->querySegmentListBuilder->getStore()->getConnection( 'mw.db.queryengine' );
+
 		$query = new QuerySegment();
-		$query->joinTable = SMWSql3SmwIds::tableName;
+		$query->joinTable = SMWSql3SmwIds::TABLE_NAME;
 		$query->joinfield = "$query->alias.smw_id";
-		$query->where = "$query->alias.smw_namespace=" . $this->queryBuilder->getStore()->getConnection( 'mw.db' )->addQuotes( $description->getNamespace() );
+		$query->where = "$query->alias.smw_namespace=" . $db->addQuotes( $description->getNamespace() );
 
 		return $query;
 	}

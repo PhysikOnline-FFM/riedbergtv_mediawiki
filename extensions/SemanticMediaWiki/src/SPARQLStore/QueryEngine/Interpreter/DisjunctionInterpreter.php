@@ -5,7 +5,6 @@ namespace SMW\SPARQLStore\QueryEngine\Interpreter;
 use SMW\Query\Language\Description;
 use SMW\Query\Language\Disjunction;
 use SMW\SPARQLStore\QueryEngine\CompoundConditionBuilder;
-use SMW\SPARQLStore\QueryEngine\Condition\Condition;
 use SMW\SPARQLStore\QueryEngine\Condition\FalseCondition;
 use SMW\SPARQLStore\QueryEngine\Condition\FilterCondition;
 use SMW\SPARQLStore\QueryEngine\Condition\SingletonCondition;
@@ -186,6 +185,19 @@ class DisjunctionInterpreter implements DescriptionInterpreter {
 				} else {
 					$subConditionElements->unionCondition .= ( $subConditionElements->unionCondition ? ' UNION ' : '' ) .
 				                   "{\n" . $subCondition->condition . " FILTER( ?$joinVariable = $matchElementName ) }";
+				}
+
+				// Relates to wikipage [[Foo::~*a*||~*A*]] in value regex disjunction
+				// where a singleton is required to search against the sortkey but
+				// replacing the filter with the condition temporary stored in
+				// weakconditions
+				if ( $subConditionElements->unionCondition && $subCondition->weakConditions !== array() ) {
+					$weakCondition = array_shift( $subCondition->weakConditions );
+					$subConditionElements->unionCondition = str_replace(
+						"FILTER( ?$joinVariable = $matchElementName )",
+						$weakCondition,
+						$subConditionElements->unionCondition
+					);
 				}
 			}
 

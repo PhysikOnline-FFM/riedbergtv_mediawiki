@@ -2,24 +2,18 @@
 
 namespace SMW\Tests\Integration\SPARQLStore;
 
-use SMW\Tests\Utils\Validators\QueryResultValidator;
-use SMW\Tests\Utils\SemanticDataFactory;
-
-use SMW\SPARQLStore\SPARQLStore;
-use SMW\SemanticData;
-use SMW\DIWikiPage;
-use SMW\DIProperty;
-use SMW\StoreFactory;
 use SMW\DataValueFactory;
-use SMW\Subobject;
-
-use SMW\Query\Language\ValueDescription as ValueDescription;
-use SMW\Query\Language\SomeProperty as SomeProperty;
-use SMW\Query\PrintRequest as PrintRequest;
-use SMWPropertyValue as PropertyValue;
-use SMW\Query\Language\ThingDescription as ThingDescription;
+use SMW\DIProperty;
+use SMW\DIWikiPage;
 use SMW\Query\Language\NamespaceDescription as NamespaceDescription;
-
+use SMW\Query\Language\SomeProperty as SomeProperty;
+use SMW\Query\Language\ThingDescription as ThingDescription;
+use SMW\Query\Language\ValueDescription as ValueDescription;
+use SMW\SPARQLStore\SPARQLStore;
+use SMW\StoreFactory;
+use SMW\Subobject;
+use SMW\Tests\Utils\SemanticDataFactory;
+use SMW\Tests\Utils\Validators\QueryResultValidator;
 use SMWDINumber as DINumber;
 use SMWQuery as Query;
 
@@ -92,7 +86,7 @@ class QueryResultLookupWithoutBaseStoreIntegrationTest extends \PHPUnit_Framewor
 		$property->setPropertyTypeId( '_wpg' );
 
 		$semanticData->addDataValue(
-			$this->dataValueFactory->newPropertyObjectValue( $property, 'Bar' )
+			$this->dataValueFactory->newDataValueByProperty( $property, 'Bar' )
 		);
 
 		$this->store->doSparqlDataUpdate( $semanticData );
@@ -140,7 +134,7 @@ class QueryResultLookupWithoutBaseStoreIntegrationTest extends \PHPUnit_Framewor
 		$property->setPropertyTypeId( '_wpg' );
 
 		$semanticData->addDataValue(
-			$this->dataValueFactory->newPropertyObjectValue( $property, 'Bar' )
+			$this->dataValueFactory->newDataValueByProperty( $property, 'Bar' )
 		);
 
 		$this->store->doSparqlDataUpdate( $semanticData );
@@ -181,7 +175,7 @@ class QueryResultLookupWithoutBaseStoreIntegrationTest extends \PHPUnit_Framewor
 		$dataItem = new DINumber( 99999 );
 
 		$subobject->addDataValue(
-			$this->dataValueFactory->newDataItemValue( $dataItem, $property )
+			$this->dataValueFactory->newDataValueByItem( $dataItem, $property )
 		);
 
 		$semanticData->addPropertyObjectValue(

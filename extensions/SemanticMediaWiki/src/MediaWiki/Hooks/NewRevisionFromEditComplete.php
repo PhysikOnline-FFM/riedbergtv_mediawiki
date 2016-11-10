@@ -4,6 +4,7 @@ namespace SMW\MediaWiki\Hooks;
 
 use ParserOutput;
 use SMW\ApplicationFactory;
+use SMW\EventHandler;
 use SMW\MediaWiki\EditInfoProvider;
 
 /**
@@ -71,31 +72,61 @@ class NewRevisionFromEditComplete {
 	 * @return boolean
 	 */
 	public function process() {
-		return $this->getParserOutputFromEditInfo() instanceof ParserOutput ? $this->performUpdate() : true;
+		return $this->canUseParserOutputFromEditInfo() ? $this->doProcess() : true;
 	}
 
-	protected function getParserOutputFromEditInfo() {
-		$editInfoProvider = new EditInfoProvider( $this->wikiPage, $this->revision, $this->user );
-		return $this->parserOutput = $editInfoProvider->fetchEditInfo()->getOutput();
+	private function canUseParserOutputFromEditInfo() {
+
+		$editInfoProvider = new EditInfoProvider(
+			$this->wikiPage,
+			$this->revision,
+			$this->user
+		);
+
+		$this->parserOutput = $editInfoProvider->fetchEditInfo()->getOutput();
+
+		return $this->parserOutput instanceof ParserOutput;
 	}
 
-	protected function performUpdate() {
+	private function doProcess() {
 
 		$applicationFactory = ApplicationFactory::getInstance();
+		$title = $this->wikiPage->getTitle();
 
-		$parserData = $applicationFactory
-			->newParserData( $this->wikiPage->getTitle(), $this->parserOutput );
+		$parserData = $applicationFactory->newParserData(
+			$title,
+			$this->parserOutput
+		);
 
-		$pageInfoProvider = $applicationFactory
-			->newMwCollaboratorFactory()
-			->newPageInfoProvider( $this->wikiPage, $this->revision, $this->user );
+		$pageInfoProvider = $applicationFactory->newMwCollaboratorFactory()->newPageInfoProvider(
+			$this->wikiPage,
+			$this->revision,
+			$this->user
+		);
 
-		$propertyAnnotator = $applicationFactory
-			->newPropertyAnnotatorFactory()
-			->newPredefinedPropertyAnnotator( $parserData->getSemanticData(), $pageInfoProvider );
+		$propertyAnnotatorFactory = $applicationFactory->newPropertyAnnotatorFactory();
+
+		$propertyAnnotator = $propertyAnnotatorFactory->newPredefinedPropertyAnnotator(
+			$parserData->getSemanticData(),
+			$pageInfoProvider
+		);
 
 		$propertyAnnotator->addAnnotation();
+
 		$parserData->pushSemanticDataToParserOutput();
+
+		$dispatchContext = EventHandler::getInstance()->newDispatchContext();
+		$dispatchContext->set( 'title', $this->wikiPage->getTitle() );
+
+		EventHandler::getInstance()->getEventDispatcher()->dispatch(
+			'cached.propertyvalues.prefetcher.reset',
+			$dispatchContext
+		);
+
+		// If the concept was altered make sure to delete the cache
+		if ( $title->getNamespace() === SMW_NS_CONCEPT ) {
+			$applicationFactory->getStore()->deleteConceptCache( $title );
+		}
 
 		return true;
 	}

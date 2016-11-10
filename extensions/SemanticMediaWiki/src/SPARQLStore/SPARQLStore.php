@@ -11,7 +11,6 @@ use SMWExpNsResource as ExpNsResource;
 use SMWExporter as Exporter;
 use SMWQuery as Query;
 use SMWTurtleSerializer as TurtleSerializer;
-use SMW\MediaWiki\Jobs\UpdateJob;
 use Title;
 
 /**
@@ -153,15 +152,13 @@ class SPARQLStore extends Store {
 			$sparqlDatabase->insertDelete( "?s $newUri ?o", "?s $oldUri ?o", "?s $oldUri ?o", $namespaces );
 		}
 
-		// Note that we cannot change oldUri to newUri in triple subjects,
-		// since some triples change due to the move.
-		$newUpdate = new UpdateJob( $newtitle );
-		$newUpdate->run();
-
-		if ( $redirid != 0 ) { // update/create redirect page data
-			$oldUpdate = new UpdateJob( $oldtitle );
-			$oldUpdate->run();
-		}
+		/**
+		 * @since 2.3 Moved UpdateJob to the base-store to ensurethat both stores
+		 * operate similar when dealing with redirects
+		 *
+		 * @note Note that we cannot change oldUri to newUri in triple subjects,
+		 * since some triples change due to the move.
+		 */
 
 		// #566 $redirid == 0 indicates a `move` not a redirect action
 		if ( $redirid == 0 ) {
@@ -187,6 +184,11 @@ class SPARQLStore extends Store {
 		foreach( $semanticData->getSubSemanticData() as $subSemanticData ) {
 			 $this->doSparqlFlatDataUpdate( $subSemanticData );
 		}
+
+		//wfDebugLog( 'smw', ' InMemoryPoolCache: ' . json_encode( \SMW\InMemoryPoolCache::getInstance()->getStats() ) );
+
+		// Reset internal cache
+		TurtleTriplesBuilder::reset();
 	}
 
 	/**
@@ -201,6 +203,8 @@ class SPARQLStore extends Store {
 			new RedirectLookup( $this->getConnection() )
 		);
 
+		$turtleTriplesBuilder->setTriplesChunkSize( 80 );
+
 		if ( !$turtleTriplesBuilder->hasTriplesForUpdate() ) {
 			return;
 		}
@@ -209,10 +213,12 @@ class SPARQLStore extends Store {
 			$this->doSparqlDataDelete( $semanticData->getSubject() );
 		}
 
-		$this->getConnection()->insertData(
-			$turtleTriplesBuilder->getTriples(),
-			$turtleTriplesBuilder->getPrefixes()
-		);
+		foreach( $turtleTriplesBuilder->getChunkedTriples() as $chunkedTriples ) {
+			$this->getConnection()->insertData(
+				$chunkedTriples,
+				$turtleTriplesBuilder->getPrefixes()
+			);
+		}
 	}
 
 	/**
@@ -267,11 +273,11 @@ class SPARQLStore extends Store {
 
 		$result = null;
 
-		if ( wfRunHooks( 'SMW::Store::BeforeQueryResultLookupComplete', array( $this, $query, &$result ) ) ) {
+		if ( \Hooks::run( 'SMW::Store::BeforeQueryResultLookupComplete', array( $this, $query, &$result ) ) ) {
 			$result = $this->fetchQueryResult( $query );
 		}
 
-		wfRunHooks( 'SMW::Store::AfterQueryResultLookupComplete', array( $this, &$result ) );
+		\Hooks::run( 'SMW::Store::AfterQueryResultLookupComplete', array( $this, &$result ) );
 
 		return $result;
 	}
@@ -366,6 +372,20 @@ class SPARQLStore extends Store {
 	 */
 	public function getPropertyTables() {
 		return $this->baseStore->getPropertyTables();
+	}
+
+	/**
+	 * @since 2.3
+	 */
+	public function getObjectIds() {
+		return $this->baseStore->getObjectIds();
+	}
+
+	/**
+	 * @since 2.4
+	 */
+	public function getPropertyTableIdReferenceFinder() {
+		return $this->baseStore->getPropertyTableIdReferenceFinder();
 	}
 
 	/**

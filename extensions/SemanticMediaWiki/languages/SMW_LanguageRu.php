@@ -40,6 +40,7 @@ class SMWLanguageRu extends SMWLanguage {
 		'_tel' => 'Номер телефона',  // name of the telephone (URI) type
 		'_rec' => 'Запись', // name of record data type
 		'_qty' => 'Количество', // name of the number type with units of measurement
+		'_mlt_rec' => 'Monolingual text',
 	);
 
 	protected $m_DatatypeAliases = array(
@@ -77,7 +78,16 @@ class SMWLanguageRu extends SMWLanguage {
 		'_ASKDE'=> 'Глубина запроса',
 		'_ASKDU'=> 'Длительность запроса',
 		'_MEDIA'=> 'Тип медиа',
-		'_MIME' => 'MIME-тип'
+		'_MIME' => 'MIME-тип',
+		'_ERRC' => 'Has processing error',
+		'_ERRT' => 'Has processing error text',
+		'_PREC'  => 'Display precision of',
+		'_LCODE' => 'Language code',
+		'_TEXT'  => 'Text',
+		'_PDESC' => 'Has property description',
+		'_PVAP'  => 'Allows pattern',
+		'_DTITLE' => 'Display title of',
+		'_PVUC' => 'Has uniqueness constraint',
 	);
 
 	protected $m_SpecialPropertyAliases = array(

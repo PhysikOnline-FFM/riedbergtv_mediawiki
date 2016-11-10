@@ -2,16 +2,14 @@
 
 namespace SMW\Tests;
 
-use SMW\Tests\Utils\MwDatabaseTableBuilder;
-use SMW\StoreFactory;
+use RuntimeException;
 use SMW\ApplicationFactory;
 use SMW\NamespaceExaminer;
 use SMW\PropertyRegistry;
 use SMW\Settings;
-
+use SMW\StoreFactory;
+use SMW\Tests\Utils\MwDatabaseTableBuilder;
 use SMWExporter as Exporter;
-
-use RuntimeException;
 
 /**
  * @group SMW
@@ -28,6 +26,11 @@ use RuntimeException;
  * @author mwjames
  */
 abstract class MwDBaseUnitTestCase extends \PHPUnit_Framework_TestCase {
+
+	/**
+	 * @var TestEnvironment
+	 */
+	protected $testEnvironment;
 
 	/**
 	 * @var MwDatabaseTableBuilder
@@ -62,17 +65,31 @@ abstract class MwDBaseUnitTestCase extends \PHPUnit_Framework_TestCase {
 	protected function setUp() {
 		parent::setUp();
 
-		// This ensures we catch properties from other SMW-related extensions
-		// as well during a combined test run
+		$this->testEnvironment = new TestEnvironment();
+		$this->testEnvironment->addConfiguration( 'smwgEnabledDeferredUpdate', false );
+
 		PropertyRegistry::clear();
 
 		$this->checkIfDatabaseCanBeUsedOtherwiseSkipTest();
 		$this->checkIfStoreCanBeUsedOtherwiseSkipTest();
 
 		ApplicationFactory::getInstance()->registerObject( 'Store', $this->getStore() );
+
+		ApplicationFactory::getInstance()->registerObject(
+			'Cache',
+			ApplicationFactory::getInstance()->newCacheFactory()->newFixedInMemoryCache()
+		);
+
+		$this->testEnvironment->clearPendingDeferredUpdates();
 	}
 
 	protected function tearDown() {
+
+		// If setUp is skipped early this might not be initialized
+		if ( $this->testEnvironment !== null ) {
+			$this->testEnvironment->tearDown();
+		}
+
 		ApplicationFactory::clear();
 		NamespaceExaminer::clear();
 		PropertyRegistry::clear();

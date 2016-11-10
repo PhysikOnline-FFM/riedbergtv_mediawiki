@@ -40,6 +40,7 @@ class SMWLanguageNb extends SMWLanguage {
 		'_tel' => 'Telefonnummer',  // name of the telephone (URI) type
 		'_rec' => 'Post', // name of record data type
 		'_qty' => 'Størrelse', // name of the number type with units of measurement
+		'_mlt_rec' => 'Monolingual text',
 	);
 
 	protected $m_DatatypeAliases = array(
@@ -84,7 +85,16 @@ class SMWLanguageNb extends SMWLanguage {
 		'_ASKDE'=> 'Spørringsdybde',
 		'_ASKDU'=> 'Spørringsvarighet',
 		'_MEDIA'=> 'Mediatype',
-		'_MIME' => 'MIME-type'
+		'_MIME' => 'MIME-type',
+		'_ERRC' => 'Has processing error',
+		'_ERRT' => 'Has processing error text',
+		'_PREC'  => 'Display precision of',
+		'_LCODE' => 'Language code',
+		'_TEXT'  => 'Text',
+		'_PDESC' => 'Has property description',
+		'_PVAP'  => 'Allows pattern',
+		'_DTITLE' => 'Display title of',
+		'_PVUC' => 'Has uniqueness constraint',
 	);
 
 	protected $m_SpecialPropertyAliases = array(

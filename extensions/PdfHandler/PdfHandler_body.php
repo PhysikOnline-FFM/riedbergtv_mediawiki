@@ -201,6 +201,7 @@ class PdfHandler extends ImageHandler {
 			"-sOutputFile=-",
 			"-dFirstPage={$page}",
 			"-dLastPage={$page}",
+			"-dSAFER",
 			"-r{$wgPdfHandlerDpi}",
 			"-dBATCH",
 			"-dNOPAUSE",
@@ -271,11 +272,14 @@ class PdfHandler extends ImageHandler {
 			return false;
 		}
 
-		wfProfileIn( __METHOD__ );
-		wfSuppressWarnings();
-		$image->pdfMetaArray = unserialize( $metadata );
-		wfRestoreWarnings();
-		wfProfileOut( __METHOD__ );
+		$work = new PoolCounterWorkViaCallback( 'PdfHandler-unserialize-metadata', $image->getName(), array(
+			'doWork' => function() use ( $image, $metadata ) {
+				wfSuppressWarnings();
+				$image->pdfMetaArray = unserialize( $metadata );
+				wfRestoreWarnings();
+			},
+		) );
+		$work->execute();
 
 		return $image->pdfMetaArray;
 	}
@@ -356,10 +360,10 @@ class PdfHandler extends ImageHandler {
 	}
 
 	/**
-	 * @param $image
+	 * @param File $image
 	 * @return bool|int
 	 */
-	function pageCount( $image ) {
+	function pageCount( File $image ) {
 		$data = $this->getMetaArray( $image );
 		if ( !$data || !isset( $data['Pages'] ) ) {
 			return false;
@@ -372,7 +376,7 @@ class PdfHandler extends ImageHandler {
 	 * @param $page int
 	 * @return array|bool
 	 */
-	function getPageDimensions( $image, $page ) {
+	function getPageDimensions( File $image, $page ) {
 		$data = $this->getMetaArray( $image );
 		return PdfImage::getPageSize( $data, $page );
 	}
@@ -382,7 +386,7 @@ class PdfHandler extends ImageHandler {
 	 * @param $page int
 	 * @return bool
 	 */
-	function getPageText( $image, $page ) {
+	function getPageText( File $image, $page ) {
 		$data = $this->getMetaArray( $image, true );
 		if ( !$data || !isset( $data['text'] ) || !isset( $data['text'][$page - 1] ) ) {
 			return false;

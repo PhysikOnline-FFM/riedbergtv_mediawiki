@@ -3,13 +3,11 @@
 namespace SMW\SPARQLStore;
 
 use RuntimeException;
-use Onoi\Cache\Cache;
-use SMW\ApplicationFactory;
 use SMW\DIWikiPage;
+use SMW\InMemoryPoolCache;
 use SMWExpNsResource as ExpNsResource;
 use SMWExporter as Exporter;
 use SMWExpResource as ExpResource;
-use SMWSparqlDatabase as SparqlDatabase;
 use SMWTurtleSerializer as TurtleSerializer;
 
 /**
@@ -22,34 +20,24 @@ use SMWTurtleSerializer as TurtleSerializer;
 class RedirectLookup {
 
 	/**
-	 * @var SMWSparqlDatabase
+	 * @var RepositoryConnection
 	 */
-	private $connection = null;
-
-	/**
-	 * @var Cache|null
-	 */
-	private static $resourceUriTargetCache = null;
+	private $repositoryConnection;
 
 	/**
 	 * @since 2.0
 	 *
-	 * @param SparqlDatabase $connection
-	 * @param Cache|null $cache
+	 * @param RepositoryConnection $repositoryConnection
 	 */
-	public function __construct( SparqlDatabase $connection, Cache $cache = null ) {
-		$this->connection = $connection;
-
-		if ( $cache !== null ) {
-			self::$resourceUriTargetCache = $cache;
-		}
+	public function __construct( RepositoryConnection $repositoryConnection ) {
+		$this->repositoryConnection = $repositoryConnection;
 	}
 
 	/**
 	 * @since 2.1
 	 */
-	public function clear() {
-		self::$resourceUriTargetCache = null;
+	public static function reset() {
+		InMemoryPoolCache::getInstance()->resetPoolCacheFor( 'sparql.store.redirectlookup' );
 	}
 
 	/**
@@ -82,11 +70,7 @@ class RedirectLookup {
 			return $expNsResource;
 		}
 
-		if ( !$this->getCache()->contains( $expNsResource->getUri() ) ) {
-			$this->getCache()->save( $expNsResource->getUri(), $this->lookupResourceUriTargetFromDatabase( $expNsResource ) );
-		}
-
-		$firstRow = $this->getCache()->fetch( $expNsResource->getUri() );
+		$firstRow = $this->doLookupResourceUriTargetFor( $expNsResource );
 
 		if ( $firstRow === false ) {
 			$exists = false;
@@ -100,11 +84,26 @@ class RedirectLookup {
 		return $expNsResource;
 	}
 
+	private function doLookupResourceUriTargetFor( ExpNsResource $expNsResource ) {
+
+		$poolCache = InMemoryPoolCache::getInstance()->getPoolCacheFor( 'sparql.store.redirectlookup' );
+
+		if ( !$poolCache->contains( $expNsResource->getUri() ) ) {
+			$poolCache->save(
+				$expNsResource->getUri(),
+				$this->lookupResourceUriTargetFromDatabase( $expNsResource )
+			);
+		}
+
+		return $poolCache->fetch( $expNsResource->getUri() );
+	}
+
 	private function isNonRedirectableResource( ExpNsResource $expNsResource ) {
 		return $expNsResource->getNamespaceId() === 'swivt' ||
 			$expNsResource->getNamespaceId() === 'rdf' ||
 			$expNsResource->getNamespaceId() === 'rdfs' ||
-			( $expNsResource->getNamespaceId() === 'property' && strrpos( $expNsResource->getLocalName(), 'aux' ) );
+			( $expNsResource->getNamespaceId() === 'property' && strrpos( $expNsResource->getLocalName(), 'aux' ) ) ||
+			( isset( $expNsResource->isUserDefined ) && !$expNsResource->isUserDefined );
 	}
 
 	private function lookupResourceUriTargetFromDatabase( ExpNsResource $expNsResource ) {
@@ -113,7 +112,7 @@ class RedirectLookup {
 		$rediUri = TurtleSerializer::getTurtleNameForExpElement( Exporter::getInstance()->getSpecialPropertyResource( '_REDI' ) );
 		$skeyUri = TurtleSerializer::getTurtleNameForExpElement( Exporter::getInstance()->getSpecialPropertyResource( '_SKEY' ) );
 
-		$respositoryResult = $this->connection->select(
+		$respositoryResult = $this->repositoryConnection->select(
 			'*',
 			"$resourceUri $skeyUri ?s  OPTIONAL { $resourceUri $rediUri ?r }",
 			array( 'LIMIT' => 1 ),
@@ -137,15 +136,6 @@ class RedirectLookup {
 		}
 
 		return $expNsResource;
-	}
-
-	private function getCache() {
-
-		if ( self::$resourceUriTargetCache === null ) {
-			self::$resourceUriTargetCache = ApplicationFactory::getInstance()->newCacheFactory()->newFixedInMemoryCache( 500 );
-		}
-
-		return self::$resourceUriTargetCache;
 	}
 
 }

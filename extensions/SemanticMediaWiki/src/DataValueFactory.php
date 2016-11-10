@@ -2,11 +2,11 @@
 
 namespace SMW;
 
-use SMWDataItem;
+use SMW\DataValues\ValueValidatorRegistry;
+use SMWDataItem as DataItem;
+use SMWDataValue as DataValue;
 use SMWDIError;
 use SMWErrorValue as ErrorValue;
-use SMWPropertyValue;
-use SMWDataValue as DataValue;
 
 /**
  * Factory class for creating SMWDataValue objects for supplied types or
@@ -15,7 +15,7 @@ use SMWDataValue as DataValue;
  * The class has the main entry point newTypeIdValue(), which creates a new
  * datavalue object, possibly with preset user values, captions and
  * property names. To create suitable datavalues for a given property, the
- * method newPropertyObjectValue() can be used.
+ * method newDataValueByProperty() can be used.
  *
  * @license GNU GPL v2+
  * @since 1.9
@@ -29,15 +29,14 @@ class DataValueFactory {
 	/**
 	 * @var DataTypeRegistry
 	 */
+	private static $instance = null;
+
+	/**
+	 * @var DataTypeRegistry
+	 */
 	private $dataTypeRegistry = null;
 
 	/**
-	 * FIXME In order to remove wfMessage dependency, a message formatter
-	 * should be injected
-	 *
-	 * @note The constructor is made protected until all static/deprecated
-	 * methods are removed
-	 *
 	 * @since 1.9
 	 *
 	 * @param DataTypeRegistry|null $dataTypeRegistry
@@ -52,7 +51,23 @@ class DataValueFactory {
 	 * @return DataValueFactory
 	 */
 	public static function getInstance() {
-		return new self( DataTypeRegistry::getInstance() );
+
+		if ( self::$instance === null ) {
+			self::$instance = new self(
+				DataTypeRegistry::getInstance()
+			);
+		}
+
+		return self::$instance;
+	}
+
+	/**
+	 * @since 2.4
+	 */
+	public function clear() {
+		$this->dataTypeRegistry->clear();
+		ValueValidatorRegistry::getInstance()->clear();
+		self::$instance = null;
 	}
 
 	/**
@@ -67,60 +82,75 @@ class DataValueFactory {
 	 *
 	 * @return DataValue
 	 */
-	public static function newTypeIdValue( $typeId, $valueString = false, $caption = false,
-			DIProperty $property = null, $contextPage = null ) {
+	public function newDataValueByType( $typeId, $valueString = false, $caption = false, DIProperty $property = null, $contextPage = null ) {
 
-		$dataTypeRegistry = DataTypeRegistry::getInstance();
+		$dataTypeRegistry = $this->dataTypeRegistry;
 
-		if ( $dataTypeRegistry->hasDataTypeClassById( $typeId ) ) {
-			$class  = $dataTypeRegistry->getDataTypeClassById( $typeId );
-			$result = new $class( $typeId );
-		} else {
-			return new ErrorValue( $typeId,
+		if ( !$dataTypeRegistry->hasDataTypeClassById( $typeId ) ) {
+			return new ErrorValue(
+				$typeId,
 				wfMessage( 'smw_unknowntype', $typeId )->inContentLanguage()->text(),
-				$valueString, $caption );
+				$valueString,
+				$caption
+			);
 		}
 
+		$class  = $dataTypeRegistry->getDataTypeClassById( $typeId );
+		$dataValue = new $class( $typeId );
+
+		$dataValue->setExtraneousFunctions(
+			$dataTypeRegistry->getExtraneousFunctions()
+		);
+
+		$dataValue->setOptions(
+			$dataTypeRegistry->getOptions()
+		);
+
 		if ( $property !== null ) {
-			$result->setProperty( $property );
+			$dataValue->setProperty( $property );
 		}
 
 		if ( !is_null( $contextPage ) ) {
-			$result->setContextPage( $contextPage );
+			$dataValue->setContextPage( $contextPage );
 		}
+
+		$dataValue->setOption(
+			DataValue::OPT_USER_LANGUAGE,
+			Localizer::getInstance()->getUserLanguage()->getCode()
+		);
 
 		if ( $valueString !== false ) {
-			$result->setUserValue( $valueString, $caption );
+			$dataValue->setUserValue( $valueString, $caption );
 		}
 
-		return $result;
+		return $dataValue;
 	}
 
 	/**
 	 * Create a value for a data item.
 	 *
-	 * @param $dataItem SMWDataItem
+	 * @param $dataItem DataItem
 	 * @param $property mixed null or SMWDIProperty property object for which this value is made
 	 * @param $caption mixed user-defined caption, or false if none given
 	 *
 	 * @return DataValue
 	 */
-	public static function newDataItemValue( SMWDataItem $dataItem, DIProperty $property = null, $caption = false ) {
+	public function newDataValueByItem( DataItem $dataItem, DIProperty $property = null, $caption = false ) {
 
 		if ( $property !== null ) {
 			$typeId = $property->findPropertyTypeID();
 		} else {
-			$typeId = DataTypeRegistry::getInstance()->getDefaultDataItemTypeId( $dataItem->getDiType() );
+			$typeId = $this->dataTypeRegistry->getDefaultDataItemTypeId( $dataItem->getDiType() );
 		}
 
-		$result = self::newTypeIdValue( $typeId, false, $caption, $property );
-		$result->setDataItem( $dataItem );
+		$dataValue = $this->newDataValueByType( $typeId, false, $caption, $property );
+		$dataValue->setDataItem( $dataItem );
 
 		if ( $caption !== false ) {
-			$result->setCaption( $caption );
+			$dataValue->setCaption( $caption );
 		}
 
-		return $result;
+		return $dataValue;
 	}
 
 	/**
@@ -135,11 +165,11 @@ class DataValueFactory {
 	 *
 	 * @return DataValue
 	 */
-	public static function newPropertyObjectValue( DIProperty $property, $valueString = false,
-			$caption = false, $contextPage = null ) {
+	public function newDataValueByProperty( DIProperty $property, $valueString = false, $caption = false, $contextPage = null ) {
 
 		$typeId = $property->isInverse() ? '_wpg' : $property->findPropertyTypeID();
-		return self::newTypeIdValue( $typeId, $valueString, $caption, $property, $contextPage );
+
+		return $this->newDataValueByType( $typeId, $valueString, $caption, $property, $contextPage );
 	}
 
 	/**
@@ -156,8 +186,7 @@ class DataValueFactory {
 	 *
 	 * @return DataValue
 	 */
-	public function newPropertyValue( $propertyName, $valueString,
-		$caption = false, DIWikiPage $contextPage = null ) {
+	public function newDataValueByText( $propertyName, $valueString, $caption = false, DIWikiPage $contextPage = null ) {
 
 		// Enforce upper case for the first character on annotations that are used
 		// within the property namespace in order to avoid confusion when
@@ -166,41 +195,49 @@ class DataValueFactory {
 			$propertyName = ucfirst( $propertyName );
 		}
 
-		$propertyDV = SMWPropertyValue::makeUserProperty( $propertyName );
+		$propertyDV = $this->newPropertyValueByLabel( $propertyName );
 
 		if ( !$propertyDV->isValid() ) {
 			return $propertyDV;
 		}
 
 		if ( !$propertyDV->canUse() ) {
-			return new ErrorValue(
+			$dataValue = new ErrorValue(
 				$propertyDV->getPropertyTypeID(),
 				wfMessage( 'smw-datavalue-property-restricted-use', $propertyName )->inContentLanguage()->text(),
 				$valueString,
 				$caption
 			);
+
+			$dataValue->setProperty( $propertyDV->getDataItem() );
+
+			return $dataValue;
 		}
 
 		$propertyDI = $propertyDV->getDataItem();
 
 		if ( $propertyDI instanceof SMWDIError ) {
-			Profiler::Out( __METHOD__, true );
 			return $propertyDV;
 		}
 
 		if ( $propertyDI instanceof DIProperty && !$propertyDI->isInverse() ) {
-			$dataValue = $this->newPropertyObjectValue(
+			$dataValue = $this->newDataValueByProperty(
 				$propertyDI,
 				$valueString,
 				$caption,
 				$contextPage
 			);
+
+			$dataValue->setProperty( $propertyDV->getDataItem() );
+
 		} elseif ( $propertyDI instanceof DIProperty && $propertyDI->isInverse() ) {
 			$dataValue = new ErrorValue( $propertyDV->getPropertyTypeID(),
 				wfMessage( 'smw_noinvannot' )->inContentLanguage()->text(),
 				$valueString,
 				$caption
 			);
+
+			$dataValue->setProperty( $propertyDV->getDataItem() );
 		} else {
 			$dataValue = new ErrorValue(
 				$propertyDV->getPropertyTypeID(),
@@ -208,18 +245,71 @@ class DataValueFactory {
 				$valueString,
 				$caption
 			);
+
+			$dataValue->setProperty( $propertyDV->getDataItem() );
 		}
 
 		if ( $dataValue->isValid() && !$dataValue->canUse() ) {
 			$dataValue = new ErrorValue(
 				$propertyDV->getPropertyTypeID(),
-				wfMessage( 'smw-datavalue-restricted-use', implode( ',', $datavalue->getErrors() ) )->inContentLanguage()->text(),
+				wfMessage( 'smw-datavalue-restricted-use', implode( ',', $dataValue->getErrors() ) )->inContentLanguage()->text(),
 				$valueString,
 				$caption
 			);
+
+			$dataValue->setProperty( $propertyDV->getDataItem() );
 		}
 
 		return $dataValue;
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param string $propertyLabel
+	 *
+	 * @return DataValue
+	 */
+	public function newPropertyValueByLabel( $propertyLabel ) {
+		return $this->newDataValueByType( '__pro', $propertyLabel );
+	}
+
+/// Deprecated methods
+
+	/**
+	 * @deprecated since 2.4, use DataValueFactory::newDataValueByItem
+	 *
+	 * @return DataValue
+	 */
+	public static function newDataItemValue( DataItem $dataItem, DIProperty $property = null, $caption = false ) {
+		return self::getInstance()->newDataValueByItem( $dataItem, $property, $caption );
+	}
+
+	/**
+	 * @deprecated since 2.4, use DataValueFactory::newDataValueByProperty
+	 *
+	 * @return DataValue
+	 */
+	public static function newPropertyObjectValue( DIProperty $property, $valueString = false, $caption = false, $contextPage = null ) {
+		return self::getInstance()->newDataValueByProperty( $property, $valueString, $caption, $contextPage );
+	}
+
+	/**
+	 * @deprecated since 2.4, use DataValueFactory::newDataValueByType
+	 *
+	 * @return DataValue
+	 */
+	public static function newTypeIdValue( $typeId, $valueString = false, $caption = false, DIProperty $property = null, $contextPage = null ) {
+		return self::getInstance()->newDataValueByType( $typeId, $valueString, $caption, $property, $contextPage );
+	}
+
+	/**
+	 * @deprecated since 2.4, use DataTypeRegistry::newDataValueByText
+	 *
+	 * @return DataValue
+	 */
+	public function newPropertyValue( $propertyName, $valueString, $caption = false, DIWikiPage $contextPage = null ) {
+		return $this->newDataValueByText( $propertyName, $valueString, $caption, $contextPage );
 	}
 
 	/**

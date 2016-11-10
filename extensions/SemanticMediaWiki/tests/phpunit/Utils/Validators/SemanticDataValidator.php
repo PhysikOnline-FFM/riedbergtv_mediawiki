@@ -2,14 +2,11 @@
 
 namespace SMW\Tests\Utils\Validators;
 
-use SMW\DataValueFactory;
-use SMW\SemanticData;
-use SMW\DIProperty;
-
-use SMWDataItem as DataItem;
-use SMWDataValue as DataValue;
-
 use RuntimeException;
+use SMW\DataValueFactory;
+use SMW\DIProperty;
+use SMW\SemanticData;
+use SMWDataItem as DataItem;
 
 /**
  *
@@ -207,7 +204,7 @@ class SemanticDataValidator extends \PHPUnit_Framework_Assert {
 		}
 
 		if ( isset( $expected['propertyCount'] ) ) {
-			$this->assertThatSemanticDataHasPropertyCountOf( $expected['propertyCount'], $semanticData );
+			$this->assertThatSemanticDataHasPropertyCountOf( $expected['propertyCount'], $semanticData, $message );
 		}
 
 		foreach ( $properties as $property ) {
@@ -272,7 +269,7 @@ class SemanticDataValidator extends \PHPUnit_Framework_Assert {
 
 		foreach ( $dataItems as $dataItem ) {
 
-			$dataValue = DataValueFactory::getInstance()->newDataItemValue( $dataItem, $property );
+			$dataValue = DataValueFactory::getInstance()->newDataValueByItem( $dataItem, $property );
 
 			switch ( $dataValue->getDataItem()->getDIType() ) {
 				case DataItem::TYPE_TIME:
@@ -378,6 +375,11 @@ class SemanticDataValidator extends \PHPUnit_Framework_Assert {
 
 		// Be more lenient towards value comparison by just eliminating a matched pair
 		foreach ( $expected['propertyValues'] as $key => $propertyValue ) {
+
+			if ( is_bool( $value ) && $value === $propertyValue ) {
+				unset( $expected['propertyValues'][$key] );
+				continue;
+			}
 
 			if ( is_numeric( $value ) && $value == $propertyValue ) {
 				unset( $expected['propertyValues'][$key] );

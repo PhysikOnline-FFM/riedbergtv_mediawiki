@@ -2,6 +2,10 @@
 
 namespace SMW;
 
+use SMW\DataValues\ValueFormatterRegistry;
+use SMW\DataValues\ValueFormatters\DataValueFormatter;
+use SMW\Deserializers\DVDescriptionDeserializer\DescriptionDeserializer;
+use SMW\Deserializers\DVDescriptionDeserializerRegistry;
 use SMWDataItem as DataItem;
 
 /**
@@ -39,6 +43,11 @@ class DataTypeRegistry {
 	private $typeAliases = array();
 
 	/**
+	 * @var string[]
+	 */
+	private $canonicalLabels = array();
+
+	/**
 	 * Array of class names for creating new SMWDataValue, indexed by type
 	 * id.
 	 *
@@ -52,6 +61,11 @@ class DataTypeRegistry {
 	 * @var integer[]
 	 */
 	private $typeDataItemIds;
+
+	/**
+	 * @var string[]
+	 */
+	private $subDataTypes = array();
 
 	/**
 	 * Lookup map that allows finding a datatype id given a label or alias.
@@ -83,6 +97,17 @@ class DataTypeRegistry {
 		//DataItem::TYPE_ERROR => '',
 	);
 
+
+	/**
+	 * @var Closure[]
+	 */
+	private $extraneousFunctions = array();
+
+	/**
+	 * @var Options
+	 */
+	private $options = null;
+
 	/**
 	 * Returns a DataTypeRegistry instance
 	 *
@@ -94,12 +119,25 @@ class DataTypeRegistry {
 
 		if ( self::$instance === null ) {
 
+			// This is the earliest point we can reset the language in accordance with
+			// the user setting because any access to Language::getCode during the
+			// setup violates MW's internal state
+			NamespaceManager::getNamespacesByLanguageCode(
+				Localizer::getInstance()->getUserLanguage()->getCode()
+			);
+
 			self::$instance = new self(
 				$GLOBALS['smwgContLang']->getDatatypeLabels(),
-				$GLOBALS['smwgContLang']->getDatatypeAliases()
+				$GLOBALS['smwgContLang']->getDatatypeAliases(),
+				$GLOBALS['smwgContLang']->getCanonicalDatatypeLabels()
 			);
 
 			self::$instance->initDatatypes();
+
+			self::$instance->setOption(
+				'smwgDVFeatures',
+				ApplicationFactory::getInstance()->getSettings()->get( 'smwgDVFeatures' )
+			);
 		}
 
 		return self::$instance;
@@ -112,6 +150,8 @@ class DataTypeRegistry {
 	 */
 	public static function clear() {
 		self::$instance = null;
+		ValueFormatterRegistry::getInstance()->clear();
+		DVDescriptionDeserializerRegistry::getInstance()->clear();
 	}
 
 	/**
@@ -120,13 +160,17 @@ class DataTypeRegistry {
 	 * @param array $typeLabels
 	 * @param array $typeAliases
 	 */
-	public function __construct( array $typeLabels, array $typeAliases ) {
+	public function __construct( array $typeLabels = array() , array $typeAliases = array(), array $canonicalLabels = array() ) {
 		foreach ( $typeLabels as $typeId => $typeLabel ) {
 			$this->registerTypeLabel( $typeId, $typeLabel );
 		}
 
 		foreach ( $typeAliases as $typeAlias => $typeId ) {
 			$this->registerDataTypeAlias( $typeId, $typeAlias );
+		}
+
+		foreach ( $canonicalLabels as $label => $id ) {
+			$this->canonicalLabels[$id] = $label;
 		}
 	}
 
@@ -161,6 +205,16 @@ class DataTypeRegistry {
 	}
 
 	/**
+	 * @since 2.4
+	 *
+	 * @param string
+	 * @return boolean
+	 */
+	public function isSubDataType( $typeId ) {
+		return isset( $this->subDataTypes[$typeId] ) && $this->subDataTypes[$typeId];
+	}
+
+	/**
 	 * A function for registering/overwriting datatypes for SMW. Should be
 	 * called from within the hook 'smwInitDatatypes'.
 	 *
@@ -168,10 +222,12 @@ class DataTypeRegistry {
 	 * @param $className string name of the according subclass of SMWDataValue
 	 * @param $dataItemId integer ID of the data item class that this data value uses, see DataItem
 	 * @param $label mixed string label or false for types that cannot be accessed by users
+	 * @param boolean $isSubDataType
 	 */
-	public function registerDataType( $id, $className, $dataItemId, $label = false ) {
+	public function registerDataType( $id, $className, $dataItemId, $label = false, $isSubDataType = false ) {
 		$this->typeClasses[$id] = $className;
 		$this->typeDataItemIds[$id] = $dataItemId;
+		$this->subDataTypes[$id] = $isSubDataType;
 
 		if ( $label !== false ) {
 			$this->registerTypeLabel( $id, $label );
@@ -244,6 +300,32 @@ class DataTypeRegistry {
 		// might also happen for historic types after an upgrade --
 		// alas, we have no idea what the former label would have been
 		return '';
+	}
+
+	/**
+	 * Returns a label for a typeId that is independent from the user/content
+	 * language
+	 *
+	 * @since 2.3
+	 *
+	 * @return string
+	 */
+	public function findCanonicalLabelById( $id ) {
+
+		if ( isset( $this->canonicalLabels[$id] ) ) {
+			return $this->canonicalLabels[$id];
+		}
+
+		return '';
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return array
+	 */
+	public function getCanonicalDatatypeLabels() {
+		return $this->canonicalLabels;
 	}
 
 	/**
@@ -333,16 +415,17 @@ class DataTypeRegistry {
 			'_ema'  => 'SMWURIValue', // Email type
 			'_uri'  => 'SMWURIValue', // URL/URI type
 			'_anu'  => 'SMWURIValue', // Annotation URI type
-			'_tel'  => 'SMWURIValue', // Phone number (URI) type
+			'_tel'  => 'SMW\DataValues\TelephoneUriValue', // Phone number (URI) type
 			'_wpg'  => 'SMWWikiPageValue', // Page type
 			'_wpp'  => 'SMWWikiPageValue', // Property page type TODO: make available to user space
 			'_wpc'  => 'SMWWikiPageValue', // Category page type TODO: make available to user space
 			'_wpf'  => 'SMWWikiPageValue', // Form page type for Semantic Forms
 			'_num'  => 'SMWNumberValue', // Number type
-			'_tem'  => 'SMWTemperatureValue', // Temperature type
+			'_tem'  => 'SMW\DataValues\TemperatureValue', // Temperature type
 			'_dat'  => 'SMWTimeValue', // Time type
-			'_boo'  => 'SMWBoolValue', // Boolean type
+			'_boo'  => 'SMW\DataValues\BooleanValue', // Boolean type
 			'_rec'  => 'SMWRecordValue', // Value list type (replacing former nary properties)
+			'_mlt_rec'  => 'SMW\DataValues\MonolingualTextValue',
 			'_qty'  => 'SMWQuantityValue', // Type for numbers with units of measurement
 			// Special types are not avaialble directly for users (and have no local language name):
 			'__typ' => 'SMWTypesValue', // Special type page type
@@ -360,6 +443,10 @@ class DataTypeRegistry {
 			'__imp' => 'SMW\DataValues\ImportValue', // Special import vocabulary type
 			'__pro' => 'SMWPropertyValue', // Property type (possibly predefined, no always based on a page)
 			'__key' => 'SMWStringValue', // Sort key of a page
+			'__lcode' => 'SMW\DataValues\LanguageCodeValue',
+			'__pval' => 'SMW\DataValues\AllowsListValue',
+			'__pvap' => 'SMW\DataValues\AllowsPatternValue',
+			'__pvuc' => 'SMW\DataValues\UniquenessConstraintValue',
 		);
 
 		$this->typeDataItemIds = array(
@@ -379,6 +466,7 @@ class DataTypeRegistry {
 			'_dat'  => DataItem::TYPE_TIME, // Time type
 			'_boo'  => DataItem::TYPE_BOOLEAN, // Boolean type
 			'_rec'  => DataItem::TYPE_WIKIPAGE, // Value list type (replacing former nary properties)
+			'_mlt_rec' => DataItem::TYPE_WIKIPAGE, // Monolingual text container
 			'_geo'  => DataItem::TYPE_GEO, // Geographical coordinates
 			'_gpo'  => DataItem::TYPE_BLOB, // Geographical polygon
 			'_qty'  => DataItem::TYPE_NUMBER, // Type for numbers with units of measurement
@@ -387,6 +475,7 @@ class DataTypeRegistry {
 			'__pls' => DataItem::TYPE_BLOB, // Special type list for decalring _rec properties
 			'__con' => DataItem::TYPE_CONCEPT, // Special concept page type
 			'__sps' => DataItem::TYPE_BLOB, // Special string type
+			'__pval' => DataItem::TYPE_BLOB, // Special string type
 			'__spu' => DataItem::TYPE_URI, // Special uri type
 			'__sob' => DataItem::TYPE_WIKIPAGE, // Special subobject type
 			'__sup' => DataItem::TYPE_WIKIPAGE, // Special subproperty type
@@ -398,13 +487,86 @@ class DataTypeRegistry {
 			'__imp' => DataItem::TYPE_BLOB, // Special import vocabulary type
 			'__pro' => DataItem::TYPE_PROPERTY, // Property type (possibly predefined, no always based on a page)
 			'__key' => DataItem::TYPE_BLOB, // Sort key of a page
+			'__lcode' => DataItem::TYPE_BLOB, // Language code
+			'__pvap' => DataItem::TYPE_BLOB, // Allows pattern
+			'__pvuc' => DataItem::TYPE_BOOLEAN, // Uniqueness constraint
+		);
+
+		$this->subDataTypes = array(
+			'__sob' => true,
+			'_rec'  => true,
+			'_mlt_rec' => true
 		);
 
 		// Deprecated since 1.9
-		wfRunHooks( 'smwInitDatatypes' );
+		\Hooks::run( 'smwInitDatatypes' );
 
 		// Since 1.9
-		wfRunHooks( 'SMW::DataType::initTypes' );
+		\Hooks::run( 'SMW::DataType::initTypes', array( $this ) );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param DataValueFormatter $dataValueFormatter
+	 */
+	public function registerDataValueFormatter( DataValueFormatter $dataValueFormatter ) {
+		ValueFormatterRegistry::getInstance()->registerDataValueFormatter( $dataValueFormatter );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param DescriptionDeserializer $descriptionDeserializer
+	 */
+	public function registerDVDescriptionDeserializer( DescriptionDeserializer $descriptionDeserializer ) {
+		DVDescriptionDeserializerRegistry::getInstance()->registerDescriptionDeserializer( $descriptionDeserializer );
+	}
+
+	/**
+	 * Inject services and objects that are planned to be used during the invocation of
+	 * a DataValue
+	 *
+	 * @since 2.3
+	 *
+	 * @param string  $name
+	 * @param \Closure $callback
+	 */
+	public function registerExtraneousFunction( $name, \Closure $callback ) {
+		$this->extraneousFunctions[$name] = $callback;
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @return Closure[]
+	 */
+	public function getExtraneousFunctions() {
+		return $this->extraneousFunctions;
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return Options
+	 */
+	public function getOptions() {
+
+		if ( $this->options === null ) {
+			$this->options = new Options();
+		}
+
+		return $this->options;
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param string $key
+	 * @param string $value
+	 */
+	public function setOption( $key, $value ) {
+		$this->getOptions()->set( $key, $value );
 	}
 
 }

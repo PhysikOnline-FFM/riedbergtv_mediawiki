@@ -2,13 +2,10 @@
 
 namespace SMW;
 
-use SMWDataItem;
-use SMWDIUri;
-use SMWDIWikiPage;
-use SMWLanguage;
-
 use InvalidArgumentException;
 use RuntimeException;
+use SMWDataItem;
+use SMWDIUri;
 
 /**
  * This class implements Property data items.
@@ -42,6 +39,7 @@ class DIProperty extends SMWDataItem {
 	const TYPE_ASKQUERY = '_ASK';
 	const TYPE_MEDIA = '_MEDIA';
 	const TYPE_MIME = '_MIME';
+	const TYPE_DISPLAYTITLE = '_DTITLE';
 
 	/**
 	 * Either an internal SMW property key (starting with "_") or the DB
@@ -61,6 +59,13 @@ class DIProperty extends SMWDataItem {
 	 * @var string
 	 */
 	private $m_proptypeid;
+
+	/**
+	 * Interwiki prefix for when a property represents a non-local entity
+	 *
+	 * @var string
+	 */
+	private $interwiki = '';
 
 	/**
 	 * Initialise a property. This constructor checks that keys of
@@ -185,37 +190,85 @@ class DIProperty extends SMWDataItem {
 			return $prefix . str_replace( '_', ' ', $this->m_key );
 		}
 
-		return PropertyRegistry::getInstance()->findPropertyLabelById( $this->m_key );
+		return $prefix . PropertyRegistry::getInstance()->findPropertyLabelById( $this->m_key );
 	}
 
 	/**
-	 * Get an object of type SMWDIWikiPage that represents the page which
+	 * @since 2.4
+	 *
+	 * @return string
+	 */
+	public function getCanonicalLabel() {
+		$prefix = $this->m_inverse ? '-' : '';
+
+		if ( $this->isUserDefined() ) {
+			return $prefix . str_replace( '_', ' ', $this->m_key );
+		}
+
+		return $prefix . PropertyRegistry::getInstance()->findCanonicalPropertyLabelById( $this->m_key );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param string $interwiki
+	 */
+	public function setInterwiki( $interwiki ) {
+		$this->interwiki = $interwiki;
+	}
+
+	/**
+	 * Get an object of type DIWikiPage that represents the page which
 	 * relates to this property, or null if no such page exists. The latter
-	 * can happen for special properties without user-readable label, and
-	 * for inverse properties.
+	 * can happen for special properties without user-readable label.
 	 *
 	 * It is possible to construct subobjects of the property's wikipage by
 	 * providing an optional subobject name.
 	 *
 	 * @param string $subobjectName
-	 * @return SMWDIWikiPage|null
+	 * @return DIWikiPage|null
 	 */
 	public function getDiWikiPage( $subobjectName = '' ) {
-		if ( $this->m_inverse ) {
-			return null;
-		}
 
 		if ( $this->isUserDefined() ) {
 			$dbkey = $this->m_key;
 		} else {
-			$dbkey = str_replace( ' ', '_', $this->getLabel() );
+			$dbkey = $this->getLabel();
 		}
 
-		try {
-			return new SMWDIWikiPage( $dbkey, SMW_NS_PROPERTY, '', $subobjectName );
-		} catch ( DataItemException $e ) {
-			return null;
+		return $this->newDIWikiPage( $dbkey, $subobjectName );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param string $subobjectName
+	 *
+	 * @return DIWikiPage|null
+	 */
+	public function getCanonicalDiWikiPage( $subobjectName = '' ) {
+
+		if ( $this->isUserDefined() ) {
+			$dbkey = $this->m_key;
+		} else {
+			$dbkey = PropertyRegistry::getInstance()->findCanonicalPropertyLabelById( $this->m_key );
 		}
+
+		return $this->newDIWikiPage( $dbkey, $subobjectName );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return DIProperty
+	 */
+	public function getRedirectTarget() {
+
+		if ( $this->m_inverse ) {
+			return $this;
+		}
+
+		return ApplicationFactory::getInstance()->getStore()->getRedirectTarget( $this );
 	}
 
 	/**
@@ -257,8 +310,8 @@ class DIProperty extends SMWDataItem {
 
 		if ( !isset( $this->m_proptypeid ) ) {
 			if ( $this->isUserDefined() ) { // normal property
-				$diWikiPage = new SMWDIWikiPage( $this->getKey(), SMW_NS_PROPERTY, '' );
-				$typearray = StoreFactory::getStore()->getPropertyValues( $diWikiPage, new self( '_TYPE' ) );
+				$diWikiPage = new DIWikiPage( $this->getKey(), SMW_NS_PROPERTY, $this->interwiki );
+				$typearray = ApplicationFactory::getInstance()->getStore()->getPropertyValues( $diWikiPage, new self( '_TYPE' ) );
 
 				if ( count( $typearray ) >= 1 ) { // some types given, pick one (hopefully unique)
 					$typeDataItem = reset( $typearray );
@@ -327,9 +380,8 @@ class DIProperty extends SMWDataItem {
 	 * whether the label refers to a known predefined property.
 	 * Note that this function only gives access to the registry data that
 	 * DIProperty stores, but does not do further parsing of user input.
-	 * For example, '-' as first character is not interpreted for inverting
-	 * a property. Likewise, no normalization of title strings is done. To
-	 * process wiki input, SMWPropertyValue should be used.
+	 *
+	 * To process wiki input, SMWPropertyValue should be used.
 	 *
 	 * @param $label string label for the property
 	 * @param $inverse boolean states if the inverse of the property is constructed
@@ -338,13 +390,34 @@ class DIProperty extends SMWDataItem {
 	 */
 	public static function newFromUserLabel( $label, $inverse = false ) {
 
-		$id = PropertyRegistry::getInstance()->findPropertyIdByLabel( $label );
+		if ( $label !== '' && $label{0} == '-' ) {
+			$label = substr( $label, 1 );
+			$inverse = true;
+		}
+
+		$id = false;
+
+		// Special handling for when the user value contains a @LCODE marker
+		if ( ( $langCode = Localizer::getLanguageCodeFrom( $label ) ) !== false ) {
+			$id = PropertyRegistry::getInstance()->findPropertyIdByLanguageCode(
+				$label,
+				$langCode
+			);
+		}
+
+		if ( $id !== false ) {
+			return new self( $id, $inverse );
+		}
+
+		$id = PropertyRegistry::getInstance()->findPropertyIdByLabel(
+			str_replace( '_', ' ', $label )
+		);
 
 		if ( $id === false ) {
 			return new self( str_replace( ' ', '_', $label ), $inverse );
-		} else {
-			return new self( $id, $inverse );
 		}
+
+		return new self( $id, $inverse );
 	}
 
 	/**
@@ -380,6 +453,21 @@ class DIProperty extends SMWDataItem {
 	 */
 	static public function registerPropertyAlias( $id, $label ) {
 		PropertyRegistry::getInstance()->registerPropertyAlias( $id, $label );
+	}
+
+	private function newDIWikiPage( $dbkey, $subobjectName ) {
+
+		// If an inverse marker is present just omit the marker so a normal
+		// property page link can be produced independent of its directionality
+		if ( $dbkey !== '' && $dbkey{0} == '-'  ) {
+			$dbkey = substr( $dbkey, 1 );
+		}
+
+		try {
+			return new DIWikiPage( str_replace( ' ', '_', $dbkey ), SMW_NS_PROPERTY, $this->interwiki, $subobjectName );
+		} catch ( DataItemException $e ) {
+			return null;
+		}
 	}
 
 }

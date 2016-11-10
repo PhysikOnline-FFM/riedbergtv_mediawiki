@@ -57,6 +57,16 @@ class HtmlColumnListRenderer {
 	private $columnListClass = 'smw-columnlist-container';
 
 	/**
+	 * @var string
+	 */
+	private $columnClass = 'smw-column';
+
+	/**
+	 * @var boolean
+	 */
+	private $isRTL = false;
+
+	/**
 	 * @since 2.2
 	 *
 	 * @param string $columnListClass
@@ -65,6 +75,28 @@ class HtmlColumnListRenderer {
 	 */
 	public function setColumnListClass( $columnListClass ) {
 		$this->columnListClass = htmlspecialchars( $columnListClass );
+		return $this;
+	}
+
+	/**
+	 * @since 2.2
+	 *
+	 * @param string $columnListClass
+	 *
+	 * @return HtmlColumnListRenderer
+	 */
+	public function setColumnClass( $columnClass ) {
+		$this->columnClass = htmlspecialchars( $columnClass );
+		return $this;
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @param boolean $isRTL
+	 */
+	public function setColumnRTLDirectionalityState( $isRTL ) {
+		$this->isRTL = (bool)$isRTL;
 		return $this;
 	}
 
@@ -136,9 +168,17 @@ class HtmlColumnListRenderer {
 
 		$result = '';
 		$usedColumnCloser = false;
+		$this->numRows = 0;
+
+		// Class to determine whether we want responsive columns width
+		if ( strpos( $this->columnClass, 'responsive' ) !== false ) {
+			$this->columnWidth = 100;
+			$this->numberOfColumns = 1;
+		} else {
+			$this->columnWidth = floor( 100 / $this->numberOfColumns );
+		}
 
 		$this->rowsPerColumn = ceil( $this->numberOfResults / $this->numberOfColumns );
-		$this->columnWidth = floor( 100 / $this->numberOfColumns );
 		$listContinuesAbbrev = wfMessage( 'listingcontinuesabbrev' )->text();
 
 		foreach ( $this->contentsByIndex as $key => $resultItems ) {
@@ -161,7 +201,10 @@ class HtmlColumnListRenderer {
 
 		return Html::rawElement(
 			'div',
-			array( 'class' => $this->columnListClass ),
+			array(
+				'class' => $this->columnListClass,
+				'dir'   => $this->isRTL ? 'rtl' : 'ltr'
+			),
 			$result . "\n" . '<br style="clear: both;"/>'
 		);
 	}
@@ -170,16 +213,19 @@ class HtmlColumnListRenderer {
 
 		$result = '';
 		$previousKey = "";
+		$dir = $this->isRTL ? 'rtl' : 'ltr';
 
 		foreach ( $resultItems as $resultItem ) {
 
 			if ( $this->numRows % $this->rowsPerColumn == 0 ) {
-				$result .= "<div class=\"smw-column\" style=\"width:$this->columnWidth%;\">";
+				$result .= "<div class=\"$this->columnClass\" style=\"width:$this->columnWidth%;\" dir=\"$dir\">";
 
 				$numRowsInColumn = $this->numRows + 1;
 
 				if ( $key == $previousKey ) {
+					// @codingStandardsIgnoreStart phpcs, ignore --sniffs=Generic.Files.LineLength.MaxExceeded
 					$result .= ( $key !== '' ? Html::element( 'div', array( 'class' => 'smw-column-header' ), "$key $listContinuesAbbrev" ) : '' ) . "<{$this->listType} start={$numRowsInColumn}>";
+					// @codingStandardsIgnoreEnd
 				}
 			}
 

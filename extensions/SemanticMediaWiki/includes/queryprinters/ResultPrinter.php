@@ -2,13 +2,13 @@
 
 namespace SMW;
 
+use Linker;
 use ParamProcessor\ParamDefinition;
-use SMWQueryResult;
-use SMWQuery;
 use ParserOptions;
 use Sanitizer;
-use DummyLinker;
 use SMWInfolink;
+use SMWQuery;
+use SMWQueryResult;
 use Title;
 
 /**
@@ -177,7 +177,7 @@ abstract class ResultPrinter extends \ContextSource implements QueryResultPrinte
 		$this->mInline = $inline;
 		$this->mLinkFirst = ( $smwgQDefaultLinking != 'none' );
 		$this->mLinkOthers = ( $smwgQDefaultLinking == 'all' );
-		$this->mLinker = class_exists( 'DummyLinker' ) ? new DummyLinker() : new \Linker(); ///TODO: how can we get the default or user skin here (depending on context)?
+		$this->mLinker = new Linker(); ///TODO: how can we get the default or user skin here (depending on context)?
 	}
 
 	/**
@@ -253,10 +253,6 @@ abstract class ResultPrinter extends \ContextSource implements QueryResultPrinte
 			$result = $this->handleNonFileResult( $result, $results, $outputMode );
 		}
 
-		if ( $GLOBALS['wgDBtype'] == 'postgres' ) {
-			$result = pg_unescape_bytea( $result );
-		}
-
 		return $result;
 	}
 
@@ -279,6 +275,16 @@ abstract class ResultPrinter extends \ContextSource implements QueryResultPrinte
 
 		$result .= $this->getErrorString( $results ); // append errors
 
+		// MW 1.21+
+		// Block recursive import of annotations unless otherwise specified for
+		// a specific use case
+		if ( method_exists( $wgParser->getOutput(), 'setExtensionData' ) ) {
+			$wgParser->getOutput()->setExtensionData(
+				'smw-blockannotation',
+				$this->params['format'] === 'embedded'
+			);
+		}
+
 		// Apply intro parameter
 		if ( ( $this->mIntro ) && ( $results->getCount() > 0 ) ) {
 			if ( $outputmode == SMW_OUTPUT_HTML && $wgParser->getTitle() instanceof Title ) {
@@ -292,7 +298,6 @@ abstract class ResultPrinter extends \ContextSource implements QueryResultPrinte
 		// Apply outro parameter
 		if ( ( $this->mOutro ) && ( $results->getCount() > 0 ) ) {
 			if ( $outputmode == SMW_OUTPUT_HTML && $wgParser->getTitle() instanceof Title ) {
-				global $wgParser;
 				$result = $result . $wgParser->recursiveTagParse( $this->mOutro );
 			} else {
 				$result = $result . $this->mOutro;
@@ -305,14 +310,14 @@ abstract class ResultPrinter extends \ContextSource implements QueryResultPrinte
 				self::$mRecursionDepth++;
 
 				if ( self::$mRecursionDepth <= self::$maxRecursionDepth ) { // restrict recursion
-					$result = '[[SMW::off]]' . $wgParser->replaceVariables( $result ) . '[[SMW::on]]';
+					$result = isset( $this->params['import-annotation'] ) && $this->params['import-annotation'] ? $wgParser->recursivePreprocess( $result ) : '[[SMW::off]]' . $wgParser->replaceVariables( $result ) . '[[SMW::on]]';
 				} else {
 					$result = ''; /// TODO: explain problem (too much recursive parses)
 				}
 
 				self::$mRecursionDepth--;
 			} else { // not during parsing, no preprocessing needed, still protect the result
-				$result = '[[SMW::off]]' . $result . '[[SMW::on]]';
+				$result = isset( $this->params['import-annotation'] ) && $this->params['import-annotation'] ? $result : '[[SMW::off]]' . $result . '[[SMW::on]]';
 			}
 		}
 
@@ -341,6 +346,13 @@ abstract class ResultPrinter extends \ContextSource implements QueryResultPrinte
 			}
 
 			self::$mRecursionDepth--;
+		}
+
+		if ( method_exists( $wgParser->getOutput(), 'setExtensionData' ) ) {
+			$wgParser->getOutput()->setExtensionData(
+				'smw-blockannotation',
+				false
+			);
 		}
 
 		return $result;
@@ -429,13 +441,13 @@ abstract class ResultPrinter extends \ContextSource implements QueryResultPrinte
 	 * @return SMWInfolink
 	 */
 	protected function getLink( SMWQueryResult $res, $outputMode, $classAffix = '' ) {
-		$link = $res->getLink();
-
-		$link->setCaption( $this->getSearchLabel( $outputMode ) );
+		$link = $res->getQueryLink( $this->getSearchLabel( $outputMode ) );
 
 		if ( $classAffix !== '' ){
 			$link->setStyle(  'smw-' . $this->params['format'] . '-' . Sanitizer::escapeClass( $classAffix ) );
 		}
+
+		$link->setParameter( $this->params['format'], 'format' );
 
 		/**
 		 * @var \IParam $param

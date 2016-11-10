@@ -2,8 +2,6 @@
 
 namespace SMW;
 
-use SMW\MediaWiki\Logger as MediaWikiLogger;
-
 use RuntimeException;
 
 /**
@@ -47,27 +45,9 @@ class StoreFactory {
 
 		if ( !isset( self::$instance[$store] ) ) {
 			self::$instance[$store] = self::newInstance( $store );
-			self::$instance[$store]->setConfiguration( self::getConfiguration() );
 		}
 
 		return self::$instance[$store];
-	}
-
-	/**
-	 * @note This method should not be used in production code and is mostly
-	 * provided to inject instances during unit testing
-	 *
-	 * @since 2.0
-	 *
-	 * @param Store $instance
-	 */
-	public static function setDefaultStoreForUnitTest( Store $instance ) {
-
-		if ( self::$defaultStore === null ) {
-			self::$defaultStore = self::getConfiguration()->get( 'smwgDefaultStore' );
-		}
-
-		self::$instance[self::$defaultStore] = $instance;
 	}
 
 	/**
@@ -93,11 +73,6 @@ class StoreFactory {
 		if ( !( $instance instanceof Store ) ) {
 			throw new InvalidStoreException( "{$store} can not be used as a store instance" );
 		}
-
-		$mediaWikiLogger = new MediaWikiLogger();
-		$mediaWikiLogger->registerLoggableEventTypes( $GLOBALS['smwgLogEventTypes'] );
-
-		$instance->setLogger( $mediaWikiLogger );
 
 		return $instance;
 	}

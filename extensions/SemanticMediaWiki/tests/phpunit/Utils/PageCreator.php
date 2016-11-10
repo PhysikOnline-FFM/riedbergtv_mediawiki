@@ -2,6 +2,8 @@
 
 namespace SMW\Tests\Utils;
 
+use Revision;
+use SMW\Tests\TestEnvironment;
 use Title;
 use UnexpectedValueException;
 
@@ -15,8 +17,19 @@ use UnexpectedValueException;
  */
 class PageCreator {
 
-	/** @var WikiPage */
+	/**
+	 * @var TestEnvironment
+	 */
+	private $testEnvironment;
+
+	/**
+	 * @var null
+	 */
 	protected $page = null;
+
+	public function __construct() {
+		$this->testEnvironment = new TestEnvironment();
+	}
 
 	/**
 	 * @since 1.9.1
@@ -38,14 +51,30 @@ class PageCreator {
 	 *
 	 * @return PageCreator
 	 */
-	public function createPage( Title $title, $editContent = '' ) {
+	public function createPage( Title $title, $editContent = '', $pageContentLanguage = '' ) {
+
+		if ( $pageContentLanguage !== '' ) {
+			\Hooks::register( 'PageContentLanguage', function( $titleByHook, &$pageLang ) use( $title, $pageContentLanguage ) {
+
+				// Only change the pageContentLanguage for the selected page
+				if ( $title->getPrefixedDBKey() === $titleByHook->getPrefixedDBKey() ) {
+					$pageLang = $pageContentLanguage;
+				}
+
+				// MW 1.19
+				return true;
+			} );
+		}
 
 		$this->page = new \WikiPage( $title );
 
-		$pageContent = 'Content of ' . $title->getFullText() . ' ' . $editContent;
+		if ( $editContent === '' ) {
+			$editContent = 'Content of ' . $title->getFullText();
+		}
+
 		$editMessage = 'SMW system test: create page';
 
-		return $this->doEdit( $pageContent, $editMessage );
+		return $this->doEdit( $editContent, $editMessage );
 	}
 
 	/**
@@ -66,6 +95,27 @@ class PageCreator {
 		} else {
 			$this->getPage()->doEdit( $pageContent, $editMessage );
 		}
+
+		$this->testEnvironment->executePendingDeferredUpdates();
+
+		return $this;
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @return PageCreator
+	 */
+	public function doMoveTo( Title $target, $isRedirect = true ) {
+
+		$this->getPage()->getTitle()->moveTo(
+			$target,
+			false,
+			"integration test",
+			$isRedirect
+		);
+
+		$this->testEnvironment->executePendingDeferredUpdates();
 
 		return $this;
 	}
@@ -88,8 +138,13 @@ class PageCreator {
 			);
 		}
 
+		if ( method_exists( $this->getPage()->getRevision(), 'getContent' ) ) {
+			$text = $this->getPage()->getRevision()->getContent( Revision::RAW );
+		} else {
+			$text = $this->getPage()->getRevision()->getRawText();
+		}
 		return $this->getPage()->prepareTextForEdit(
-			$this->getPage()->getRevision()->getRawText(),
+			$text,
 			null,
 			null
 		);

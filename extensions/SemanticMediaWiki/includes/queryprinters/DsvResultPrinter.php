@@ -2,10 +2,8 @@
 
 namespace SMW;
 
-use SMWQueryResult;
-use SMWQueryProcessor;
-use SMWQuery;
 use Sanitizer;
+use SMWQueryResult;
 
 /**
  * Result printer to print results in UNIX-style DSV (deliminter separated value) format.
@@ -63,10 +61,6 @@ class DsvResultPrinter extends FileExportPrinter {
 	 */
 	public function getFileName( SMWQueryResult $queryResult ) {
 		return $this->fileName;
-	}
-
-	public function getQueryMode( $context ) {
-		return $context == SMWQueryProcessor::SPECIAL_PAGE ? SMWQuery::MODE_INSTANCES : SMWQuery::MODE_NONE;
 	}
 
 	public function getName() {

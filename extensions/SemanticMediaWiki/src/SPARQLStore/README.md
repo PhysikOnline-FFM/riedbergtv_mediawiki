@@ -1,19 +1,27 @@
 # SPARQLStore
 
-The `SPARQLStore` consists of two components, a base store (by default using the existing `SQLStore`) and a client database connector. Currently, the base store is responsible for accumulating information about properties, value annotations, and statistics.
+The `SPARQLStore` is the name for the component that can establish a connection between a [RDF triple store][tdb] and Semantic MediaWiki (a more general introduction can be found [here](https://www.semantic-mediawiki.org/wiki/Help:Using SPARQL and RDF stores)).
+
+The `SPARQLStore` is composed of a base store (by default using the existing `SQLStore`), a `QueryEngine`, and a connector to the RDF back-end. Currently, the base store takes the position of accumulating information about properties, value annotations, and statistics.
+
+## Overview
+
+![image](https://cloud.githubusercontent.com/assets/1245473/9708428/e1e2bf1a-551b-11e5-920c-dd97d66d2ec7.png)
 
 ## Repository connector
 
-A repository connector is responsible for updating triples to external [TDB][tdb] and return results from it for query requests made by the `QueryEngine`.
+A repository connector is responsible for establishing a communication between Semantic MediaWiki and an external [TDB][tdb] with the main objective to transfer/update triples from SMW to the back-end and to return result matches for a query request.
 
-The following client repositories are currently supported:
+The following client repositories have been tested:
 
 - [Jena Fuseki][fuseki]
 - [Virtuoso][virtuoso]
-- [4Store][4store]
+- [Blazegraph][blazegraph]
 - [Sesame][sesame]
+- [4Store][4store]
 
-```php
+### Create a connection
+<pre>
 $connectionManager = new ConnectionManager();
 
 $connectionManager->registerConnectionProvider(
@@ -21,21 +29,21 @@ $connectionManager->registerConnectionProvider(
 	new RepositoryConnectionProvider( 'fuseki' )
 );
 
-$connectionManager->getConnection( 'sparql' )
-```
+$connection = $connectionManager->getConnection( 'sparql' )
+</pre>
 
 ## QueryEngine
 
-The `QueryEngine` is responsible for transforming a `ask` description object into a qualified
-[`SPARQL` query language][sparql-query] string.
+The `QueryEngine` is responsible for transforming an `#ask` description object into a qualified
+[`SPARQL` query][sparql-query] expression.
 
-- The `CompoundConditionBuilder` builds a SPARQL condition from a `#ask` query artefact (`Description` object)
-- The condition is being transformed into a qualified `SPARQL` query with the client connector making a request to the database to return a list of raw results
-- The list with raw results is being parsed by a `HttpResponseParser` to provide a unified `RepositoryResult`
-- During the final step, the `QueryResultFactory` converts the `RepositoryResult` into a SMW specific `QueryResult` object which will fetch all remaining data (those selected as printrequests) from the base store to make them available to a `QueryResultPrinter`
+- The `CompoundConditionBuilder` builds a SPARQL condition from an `#ask` query artefact (aka [`Description`][ask query] object)
+- The condition is transformed into a qualified `SPARQL` statement for which the [repository connector][connector] is making a http request to the back-end while awaiting an expected list of subjects that matched the condition in form of a `XML` or `JSON` response
+- The raw results are being parsed by a `HttpResponseParser` to provide a unified `RepositoryResult` object
+- During the final step, the `QueryResultFactory` converts the `RepositoryResult` into a SMW specific `QueryResult` object which will fetch the remaining data (those selected as printrequests) from the base store and make them available to a [`QueryResultPrinter`][resultprinter]
 
-### Examples
-```php
+### Create a query request
+<pre>
 /**
  * Equivalent to [[Foo::+]]
  *
@@ -49,25 +57,16 @@ $description = new SomeProperty(
     new DIProperty( 'Foo' ),
     new ThingDescription()
 );
-```
-```php
+
 $query = new Query( $description );
 
-$sparqlStorefactory = new SPARQLStoreFactory(
+$sparqlStoreFactory = new SPARQLStoreFactory(
   new SPARQLStore()
 );
 
-$queryEngine = $sparqlStorefactory->newMasterQueryEngine();
+$queryEngine = $sparqlStoreFactory->newMasterQueryEngine();
 $queryResult = $queryEngine->getQueryResult( $query );
-```
-
-## Integration testing
-
-Information about integration testing and installation can be found in the [build environment documentation](../../../build/travis/README.md).
-
-## Miscellaneous
-
-- [Large Triple Stores](http://www.w3.org/wiki/LargeTripleStores)
+</pre>
 
 [fuseki]: https://jena.apache.org/
 [fuseki-dataset]: https://jena.apache.org/documentation/tdb/dynamic_datasets.html
@@ -77,3 +76,7 @@ Information about integration testing and installation can be found in the [buil
 [4store]: https://github.com/garlik/4store
 [tdb]: http://en.wikipedia.org/wiki/Triplestore
 [sesame]: http://rdf4j.org/
+[blazegraph]: https://wiki.blazegraph.com/wiki/index.php/Main_Page
+[ask query]: https://www.semantic-mediawiki.org/wiki/Query_language
+[connector]: https://www.semantic-mediawiki.org/wiki/Help:SPARQLStore/RepositoryConnector
+[resultprinter]: https://www.semantic-mediawiki.org/wiki/Help:SPARQLStore/RepositoryConnector

@@ -2,25 +2,20 @@
 
 namespace SMW\Tests;
 
-use SMW\Tests\Utils\UtilityFactory;
-
-use SMW\SubobjectParserFunction;
-use SMW\Subobject;
-use SMW\ParserParameterFormatter;
-use SMW\MessageFormatter;
-use SMW\ParserData;
+use ParserOutput;
 use SMW\DIProperty;
 use SMW\Localizer;
-
-use SMWDataItem;
+use SMW\MessageFormatter;
+use SMW\ParserData;
+use SMW\ParserParameterFormatter;
+use SMW\Subobject;
+use SMW\SubobjectParserFunction;
+use SMW\Tests\Utils\UtilityFactory;
 use Title;
-use ParserOutput;
 
 /**
  * @covers \SMW\SubobjectParserFunction
- *
- * @group SMW
- * @group SMWExtension
+ * @group semantic-mediawiki
  *
  * @license GNU GPL v2+
  * @since 1.9
@@ -135,7 +130,7 @@ class SubobjectParserFunctionTest extends \PHPUnit_Framework_TestCase {
 	}
 
 	/**
-	 * @dataProvider sortKeyProvider
+	 * @dataProvider tokuFixedParameterProvider
 	 */
 	public function testSortKeyAnnotation( array $parameters, array $expected ) {
 		$this->setupInstanceAndAssertSemanticData(
@@ -160,6 +155,27 @@ class SubobjectParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			'_be96d37a4d7c35be8673cb4229b8fdec',
 			$subobject->getSubobjectId()
 		);
+	}
+
+	public function testRestrictionOnTooShortFirstPartWhenDotIsUsedForUserNamedSubobject() {
+
+		// #1299, #1302
+		// Has dot restriction
+		// {{#subobject:foo.bar
+		// |Date=Foo
+		// }}
+		$parameters = array(
+			'foo.bar',
+			'Date=Foo'
+		);
+
+		$subobject = new Subobject( Title::newFromText( __METHOD__ ) );
+
+		$instance = $this->acquireInstance( $subobject );
+		$instance->parse( new ParserParameterFormatter( $parameters ) );
+
+		$this->setExpectedException( '\SMW\InvalidSemanticDataException' );
+		$subobject->getSubobjectId();
 	}
 
 	protected function setupInstanceAndAssertSemanticData( array $parameters, array $expected ) {
@@ -188,10 +204,15 @@ class SubobjectParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			);
 		}
 
-		foreach ( $subSemanticData as $actualSemanticDataToAssert ){
+		foreach ( $subSemanticData as $key => $semanticData ){
+
+			if ( strpos( $semanticData->getSubject()->getSubobjectName(), '_ERR' ) !== false ) {
+				continue;
+			}
+
 			$this->semanticDataValidator->assertThatPropertiesAreSet(
 				$expected,
-				$actualSemanticDataToAssert
+				$semanticData
 			);
 		}
 	}
@@ -305,8 +326,9 @@ class SubobjectParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			array(
 				'hasErrors' => true,
 				'identifier' => 'Foo_bar_foo',
-				'propertyCount'  => 1,
-				'propertyLabels' => array( 'Bar' ),
+				'strict-mode-valuematch' => false,
+				'propertyCount'  => 2,
+				'propertyKeys'   => array( 'Bar', '_ERRC' ),
 				'propertyValues' => array( 'Foo Bar' )
 			)
 		);
@@ -320,8 +342,9 @@ class SubobjectParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			array(
 				'hasErrors' => true,
 				'identifier' => 'Foo_bar_foo',
-				'propertyCount'  => 1,
-				'propertyLabels' => array( 'Bar' ),
+				'strict-mode-valuematch' => false,
+				'propertyCount'  => 2,
+				'propertyKeys' => array( 'Bar', '_ERRC' ),
 				'propertyValues' => array( 'Foo Bar' )
 			)
 		);
@@ -336,7 +359,9 @@ class SubobjectParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			array(
 				'hasErrors' => true,
 				'identifier' => 'Foo_bar_foo',
-				'propertyCount'  => 0
+				'strict-mode-valuematch' => false,
+				'propertyCount'  => 1,
+				'propertyKeys' => array( '_ERRC' )
 			)
 		);
 
@@ -352,9 +377,25 @@ class SubobjectParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			array(
 				'hasErrors' => true,
 				'identifier' => 'Foo_bar_foo',
+				'strict-mode-valuematch' => false,
 				'propertyCount'  => 1,
-				'propertyLabels' => array( $diPropertyError->getLabel() ),
-				'propertyValues' => array( 'Date' )
+				'propertyKeys' => array( '_ERRC' )
+			)
+		);
+
+		// Not dot restriction
+		#10 {{#subobject:foobar.bar
+		// |Bar=foo Bar
+		// }}
+		$provider[] = array(
+			array( 'foobar.bar', 'Bar=foo Bar' ),
+			array(
+				'hasErrors' => false,
+				'identifier' => 'foobar.bar',
+				'strict-mode-valuematch' => false,
+				'propertyCount'  => 1,
+				'propertyKeys' => array( 'Bar' ),
+				'propertyValues' => array( 'Foo Bar' )
 			)
 		);
 
@@ -400,7 +441,7 @@ class SubobjectParserFunctionTest extends \PHPUnit_Framework_TestCase {
 		return $provider;
 	}
 
-	public function sortKeyProvider() {
+	public function tokuFixedParameterProvider() {
 
 		$provider = array();
 
@@ -444,6 +485,93 @@ class SubobjectParserFunctionTest extends \PHPUnit_Framework_TestCase {
 				),
 				'propertyValues' => array(
 					'Foo Bar'
+				)
+			)
+		);
+
+		// #2 @category
+		// {{#subobject:
+		// |Bar=foo Bar
+		// |@category=1001
+		// }}
+		$provider[] = array(
+			array(
+				'Bar=foo Bar',
+				'@category=1001'
+			),
+			array(
+				'propertyCount'  => 2,
+				'properties'     => array(
+					new DIProperty( 'Bar' ),
+					new DIProperty( '_INST' )
+				),
+				'propertyValues' => array(
+					'Foo Bar',
+					'1001'
+				)
+			)
+		);
+
+		// #3 @category empty
+		// {{#subobject:
+		// |Bar=foo Bar
+		// |@category=
+		// }}
+		$provider[] = array(
+			array(
+				'Bar=foo Bar',
+				'@category='
+			),
+			array(
+				'propertyCount'  => 1,
+				'properties'     => array(
+					new DIProperty( 'Bar' )
+				),
+				'propertyValues' => array(
+					'Foo Bar'
+				)
+			)
+		);
+
+		// #4 display title to set sortkey
+		// {{#subobject:
+		// |Display title of=Foo
+		// }}
+		$provider[] = array(
+			array(
+				'Display title of=Foo'
+			),
+			array(
+				'propertyCount'  => 2,
+				'properties'     => array(
+					new DIProperty( '_DTITLE' ),
+					new DIProperty( '_SKEY' )
+				),
+				'propertyValues' => array(
+					'Foo'
+				)
+			)
+		);
+
+		// #4 display title to set sortkey
+		// {{#subobject:
+		// |Display title of=Foo
+		// |@sortkey=Bar
+		// }}
+		$provider[] = array(
+			array(
+				'Display title of=Foo',
+				'@sortkey=Bar'
+			),
+			array(
+				'propertyCount'  => 2,
+				'properties'     => array(
+					new DIProperty( '_DTITLE' ),
+					new DIProperty( '_SKEY' )
+				),
+				'propertyValues' => array(
+					'Foo',
+					'Bar'
 				)
 			)
 		);

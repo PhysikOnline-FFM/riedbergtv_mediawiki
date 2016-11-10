@@ -23,8 +23,8 @@
 	"smw_exportrdf_submit": "Teber de",
 	"properties": "Xısusiyey",
 	"concepts": "Konsepti",
-	"unusedproperties": "Xısusiyetê ke nê xebtênê",
-	"wantedproperties": "Xısusiyetê ke waştênê",
+	"unusedproperties": "Xısusiyetê ke nêguriyenê",
+	"wantedproperties": "Xısusiyetê ke waziyenê",
 	"smw_wantedproperty_template": "$1 ($2 {{PLURAL:$2|vıraştene|vıraştene}})",
 	"smw_purge": "Newe ke",
 	"types": "Babeti",
@@ -34,6 +34,7 @@
 	"smw-ask-delete": "[Bestere]",
 	"searchbyproperty": "Xısusiyeti heta cıgeyrê",
 	"smw_sbv_value": "Qıymet:",
+	"browse": "Çım berze ra wiki",
 	"smw_browselink": "Xısusiyetan bıvêne",
 	"smw_browse_go": "Şo",
 	"smw-livepreview-loading": "Bar beno..."

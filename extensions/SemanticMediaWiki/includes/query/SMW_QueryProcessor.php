@@ -1,9 +1,11 @@
 <?php
 
-use ParamProcessor\Processor;
 use ParamProcessor\Options;
+use ParamProcessor\Param;
 use ParamProcessor\ParamDefinition;
+use ParamProcessor\Processor;
 use SMW\Query\PrintRequest;
+use SMW\Query\PrintRequestFactory;
 
 /**
  * This file contains a static class for accessing functions to generate and execute
@@ -36,13 +38,13 @@ class SMWQueryProcessor {
 	 *
 	 * @since 1.6.2
 	 * The return value changed in SMW 1.8 from an array with result values
-	 * to an array with IParam objects.
+	 * to an array with Param objects.
 	 *
 	 * @param array $params
 	 * @param array $printRequests
 	 * @param boolean $unknownInvalid
 	 *
-	 * @return IParam[]
+	 * @return Param[]
 	 */
 	public static function getProcessedParams( array $params, array $printRequests = array(), $unknownInvalid = true ) {
 		$validator = self::getValidatorForParams( $params, $printRequests, $unknownInvalid );
@@ -97,12 +99,13 @@ class SMWQueryProcessor {
 	 *
 	 * @return SMWQuery
 	 */
-	static public function createQuery( $queryString, array $params, $context = self::INLINE_QUERY, $format = '', array $extraPrintouts = array() ) {
+	static public function createQuery( $queryString, array $params, $context = self::INLINE_QUERY, $format = '', array $extraPrintouts = array(), $contextPage = null ) {
 		global $smwgQDefaultNamespaces, $smwgQFeatures, $smwgQConceptFeatures;
 
 		// parse query:
 		$queryfeatures = ( $context == self::CONCEPT_DESC ) ? $smwgQConceptFeatures : $smwgQFeatures;
 		$qp = new SMWQueryParser( $queryfeatures );
+		$qp->setContextPage( $contextPage );
 		$qp->setDefaultNamespaces( $smwgQDefaultNamespaces );
 		$desc = $qp->getQueryDescription( $queryString );
 
@@ -121,9 +124,11 @@ class SMWQueryProcessor {
 
 		$query = new SMWQuery( $desc, ( $context != self::SPECIAL_PAGE ), ( $context == self::CONCEPT_DESC ) );
 		$query->setQueryString( $queryString );
+		$query->setContextPage( $contextPage );
 		$query->setExtraPrintouts( $extraPrintouts );
 		$query->setMainLabel( $params['mainlabel']->getValue() );
 		$query->addErrors( $qp->getErrors() ); // keep parsing errors for later output
+		$query->setQuerySource( $params['source']->getValue() );
 
 		// set mode, limit, and offset:
 		$query->querymode = $querymode;
@@ -193,6 +198,9 @@ class SMWQueryProcessor {
 				$sortKey = '';
 			}
 			else {
+
+				$sort = $GLOBALS['wgContLang']->getNsText( NS_CATEGORY ) == mb_convert_case( $sort, MB_CASE_TITLE ) ? '_INST' : $sort;
+
 				$propertyValue = SMWPropertyValue::makeUserProperty( trim( $sort ) );
 
 				if ( $propertyValue->isValid() ) {
@@ -278,6 +286,8 @@ class SMWQueryProcessor {
 		$printouts = array();
 
 		$lastprintout = null;
+		$printRequestFactory = new PrintRequestFactory();
+
 		foreach ( $rawParams as $name => $rawParam ) {
 			// special handling for arrays - this can happen if the
 			// parameter came from a checkboxes input in Special:Ask:
@@ -288,7 +298,7 @@ class SMWQueryProcessor {
 			// Bug 32955 / #640
 			// Modify (e.g. replace `=`) a condition string only if enclosed by [[ ... ]]
 			$rawParam = preg_replace_callback(
-				'/\[\[(?:([^:][^]]*):[=:])+([^\[\]]*)\]\]/xu',
+				'/\[\[([^\[\]]*)\]\]/xu',
 				function( array $matches ) {
 					return str_replace( array( '=' ), array( '-3D' ), $matches[0] );
 				},
@@ -303,7 +313,7 @@ class SMWQueryProcessor {
 			if ( $rawParam === '' ) {
 			} elseif ( $rawParam { 0 } == '?' ) { // print statement
 				$rawParam = substr( $rawParam, 1 );
-				$lastprintout = self::getSMWPrintRequestFromString( $rawParam, $showMode );
+				$lastprintout = $printRequestFactory->newPrintRequestFromText( $rawParam, $showMode );
 				if ( !is_null( $lastprintout ) ) {
 					$printouts[] = $lastprintout;
 				}
@@ -318,7 +328,9 @@ class SMWQueryProcessor {
 					}
 				}
 			} else { // parameter or query
-				$parts = explode( '=', $rawParam, 2 );
+
+				// #1645
+				$parts = $showMode && $name == 0 ? $rawParam : explode( '=', $rawParam, 2 );
 
 				if ( count( $parts ) >= 2 ) {
 					// don't trim here, some parameters care for " "
@@ -339,71 +351,6 @@ class SMWQueryProcessor {
 	}
 
 	/**
-	 * Create an SMWPrintRequest object from a string description as one
-	 * would normally use in #ask and related inputs. The string must start
-	 * with a "?" and may contain label and formatting parameters after "="
-	 * or "#", respectively. However, further parameters, given in #ask by
-	 * "|+param=value" are not allowed here; they must be added
-	 * individually.
-	 *
-	 * @param string $printRequestString
-	 * @param boolean $showMode
-	 *
-*@return PrintRequest||null
-	 * @since 1.8
-	 */
-	static protected function getSMWPrintRequestFromString( $printRequestString, $showMode ) {
-		global $wgContLang;
-
-		$parts = explode( '=', $printRequestString, 2 );
-		$propparts = explode( '#', $parts[0], 2 );
-
-		$data = null;
-
-		if ( trim( $propparts[0] ) === '' ) { // print "this"
-			$printmode = PrintRequest::PRINT_THIS;
-			$label = ''; // default
-		} elseif ( $wgContLang->getNsText( NS_CATEGORY ) == ucfirst( trim( $propparts[0] ) ) ) { // print categories
-			$printmode = PrintRequest::PRINT_CATS;
-			$label = $showMode ? '' : $wgContLang->getNSText( NS_CATEGORY ); // default
-		} else { // print property or check category
-			$title = Title::newFromText( trim( $propparts[0] ), SMW_NS_PROPERTY ); // trim needed for \n
-			if ( is_null( $title ) ) { // not a legal property/category name; give up
-				return null;
-			}
-
-			if ( $title->getNamespace() == NS_CATEGORY ) {
-				$printmode = PrintRequest::PRINT_CCAT;
-				$data = $title;
-				$label = $showMode ? '' : $title->getText();  // default
-			} else { // enforce interpretation as property (even if it starts with something that looks like another namespace)
-				$printmode = PrintRequest::PRINT_PROP;
-				$data = SMWPropertyValue::makeUserProperty( trim( $propparts[0] ) );
-				if ( !$data->isValid() ) { // not a property; give up
-					return null;
-				}
-				$label = $showMode ? '' : $data->getWikiValue();  // default
-			}
-		}
-
-		if ( count( $propparts ) == 1 ) { // no outputformat found, leave empty
-			$propparts[] = false;
-		} elseif ( trim( $propparts[1] ) === '' ) { // "plain printout", avoid empty string to avoid confusions with "false"
-			$propparts[1] = '-';
-		}
-
-		if ( count( $parts ) > 1 ) { // label found, use this instead of default
-			$label = trim( $parts[1] );
-		}
-
-		try {
-			return new PrintRequest( $printmode, $label, $data, trim( $propparts[1] ) );
-		} catch ( InvalidArgumentException $e ) { // something still went wrong; give up
-			return null;
-		}
-	}
-
-	/**
 	 * Process and answer a query as given by an array of parameters as is
 	 * typically produced by the #ask parser function. The parameter
 	 * $context defines in what context the query is used, which affects
@@ -420,7 +367,7 @@ class SMWQueryProcessor {
 	 * @param boolean $showMode process like #show parser function?
 	 * @return array( SMWQuery, array of IParam )
 	 */
-	static public function getQueryAndParamsFromFunctionParams( array $rawParams, $outputMode, $context, $showMode ) {
+	static public function getQueryAndParamsFromFunctionParams( array $rawParams, $outputMode, $context, $showMode, $contextPage = null ) {
 		list( $queryString, $params, $printouts ) = self::getComponentsFromFunctionParams( $rawParams, $showMode );
 
 		if ( !$showMode ) {
@@ -429,7 +376,7 @@ class SMWQueryProcessor {
 
 		$params = self::getProcessedParams( $params, $printouts );
 
-		$query  = self::createQuery( $queryString, $params, $context, '', $printouts );
+		$query  = self::createQuery( $queryString, $params, $context, '', $printouts, $contextPage );
 		return array( $query, $params );
 	}
 
@@ -691,14 +638,14 @@ class SMWQueryProcessor {
 	 *
 	 * @param string $format
 	 *
-	 * @return array of IParamDefinition
+	 * @return ParamDefinition[]
 	 */
 	public static function getFormatParameters( $format ) {
 		SMWParamFormat::resolveFormatAliases( $format );
 
 		if ( array_key_exists( $format, $GLOBALS['smwgResultFormats'] ) ) {
 			return ParamDefinition::getCleanDefinitions(
-				SMWQueryProcessor::getResultPrinter( $format )->getParamDefinitions( SMWQueryProcessor::getParameters() )
+				self::getResultPrinter( $format )->getParamDefinitions( self::getParameters() )
 			);
 		} else {
 			return array();

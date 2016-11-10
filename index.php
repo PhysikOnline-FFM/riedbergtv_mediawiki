@@ -1,19 +1,3 @@
-<html>
-        <head>
-                <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
-                <title>Wartungsmeldung</title>
-        </head>
-        <body>
-                <div class="container">
-                        <div class="jumbotron" style="margin-top:50px;text-align:center">
-                                <h2>Diese Seite ist aktuell aufgrund von Wartungsarbeiten nicht erreichbar.</h2>
-				<!-- nicht vergessen, den '/*' comment wieder zu entfernen! -->
-                        </div>
-                </div>
-        </body>
-</html>
-
-
 <?php
 /**
  * This is the main web entry point for MediaWiki.
@@ -46,13 +30,11 @@
  * @file
  */
 
-
-/*
-
-
 // Bail on old versions of PHP, or if composer has not been run yet to install
 // dependencies. Using dirname( __FILE__ ) here because __DIR__ is PHP5.3+.
+// @codingStandardsIgnoreStart MediaWiki.Usage.DirUsage.FunctionFound
 require_once dirname( __FILE__ ) . '/includes/PHPVersionCheck.php';
+// @codingStandardsIgnoreEnd
 wfEntryPointCheck( 'index.php' );
 
 require __DIR__ . '/includes/WebStart.php';

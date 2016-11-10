@@ -3,7 +3,9 @@
 namespace SMW\MediaWiki\Specials\SearchByProperty;
 
 use SMW\DataValueFactory;
+use SMW\DataValues\TelephoneUriValue;
 use SMW\UrlEncoder;
+use SMWNumberValue as NumberValue;
 use SMWPropertyValue as PropertyValue;
 
 /**
@@ -90,8 +92,15 @@ class PageRequestOptions {
 		$property = isset( $this->requestOptions['property'] ) ? $this->requestOptions['property'] : current( $params );
 		$value = isset( $this->requestOptions['value'] ) ? $this->requestOptions['value'] : next( $params );
 
-		$property = $this->urlEncoder->decode( $property );
-		$value = str_replace( array( '-25' ), array( '%' ), $value );
+		$property = $this->urlEncoder->decode(
+			str_replace( array( '_' ), array( ' ' ), $property )
+		);
+
+		$value = str_replace(
+			array( '-25', '_', '-2D' ),
+			array( '%', ' ', '-' ),
+			$value
+		);
 
 		$this->property = PropertyValue::makeUserProperty( $property );
 
@@ -101,18 +110,35 @@ class PageRequestOptions {
 			$this->valueString = $value;
 		} else {
 			$this->propertyString = $this->property->getWikiValue();
-
-			$this->value = DataValueFactory::getInstance()->newPropertyObjectValue(
-				$this->property->getDataItem(),
-				$this->urlEncoder->decode( $value )
-			);
-
-			$this->valueString = $this->value->isValid() ? $this->value->getWikiValue() : $value;
+			$this->setValue( $value );
 		}
 
 		$this->setLimit();
 		$this->setOffset();
 		$this->setNearbySearch();
+	}
+
+	private function setValue( $value ) {
+
+		$this->value = DataValueFactory::getInstance()->newDataValueByProperty(
+			$this->property->getDataItem()
+		);
+
+		if ( $this->value instanceof NumberValue ) {
+			$value = str_replace( array(  '-20' ), array( ' ' ), $value);
+			// Do not try to decode things like 1.2e-13
+			// Signals that we don't want any precision limitation
+			$this->value->setOption( 'no.displayprecision', true );
+		} elseif ( $this->value instanceof TelephoneUriValue ) {
+			// No encoding to avoid turning +1-201-555-0123
+			// into +1 1U523 or further obfuscate %2B1-2D201-2D555-2D0123 ...
+		} else {
+			$value = $this->urlEncoder->decode( $value );
+		}
+
+		$this->value->setUserValue( $value );
+
+		$this->valueString = $this->value->isValid() ? $this->value->getWikiValue() : $value;
 	}
 
 	private function setLimit() {

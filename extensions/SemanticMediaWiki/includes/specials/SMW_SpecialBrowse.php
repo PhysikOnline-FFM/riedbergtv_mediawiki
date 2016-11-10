@@ -1,7 +1,11 @@
 <?php
 
-use SMW\UrlEncoder;
+use SMW\ApplicationFactory;
+use SMW\DataValueFactory;
 use SMW\DIProperty;
+use SMW\Localizer;
+use SMW\SemanticData;
+use SMW\UrlEncoder;
 
 /**
  * @ingroup SMWSpecialPage
@@ -41,8 +45,8 @@ class SMWSpecialBrowse extends SpecialPage {
 		global $smwgBrowseShowAll;
 		parent::__construct( 'Browse', '', true, false, 'default', true );
 		if ( $smwgBrowseShowAll ) {
-			SMWSpecialBrowse::$incomingvaluescount = 21;
-			SMWSpecialBrowse::$incomingpropertiescount = - 1;
+			self::$incomingvaluescount = 21;
+			self::$incomingpropertiescount = - 1;
 		}
 	}
 
@@ -67,7 +71,7 @@ class SMWSpecialBrowse extends SpecialPage {
 			$this->articletext = UrlEncoder::decode( $query );
 		}
 
-		$this->subject = \SMW\DataValueFactory::getInstance()->newTypeIDValue( '_wpg', $this->articletext );
+		$this->subject = DataValueFactory::getInstance()->newTypeIDValue( '_wpg', $this->articletext );
 		$offsettext = $wgRequest->getVal( 'offset' );
 		$this->offset = ( is_null( $offsettext ) ) ? 0 : intval( $offsettext );
 
@@ -90,8 +94,18 @@ class SMWSpecialBrowse extends SpecialPage {
 			$this->showincoming = false;
 		}
 
-		$wgOut->addHTML( $this->displayBrowse() );
-		SMWOutputs::commitToOutputPage( $wgOut ); // make sure locally collected output data is pushed to the output!
+		$out = $this->getOutput();
+
+		$out->addModuleStyles( array(
+			'mediawiki.ui',
+			'mediawiki.ui.button',
+			'mediawiki.ui.input',
+		) );
+
+		$out->addHTML( $this->displayBrowse() );
+		$this->addExternalHelpLinks();
+
+		SMWOutputs::commitToOutputPage( $out ); // make sure locally collected output data is pushed to the output!
 	}
 
 	/**
@@ -101,17 +115,21 @@ class SMWSpecialBrowse extends SpecialPage {
 	 * @return string  A HTML string with the factbox
 	 */
 	private function displayBrowse() {
-		global $wgContLang, $wgOut;
+		global $wgContLang;
 		$html = "\n";
 		$leftside = !( $wgContLang->isRTL() ); // For right to left languages, all is mirrored
+		$modules = array();
 
 		if ( $this->subject->isValid() ) {
+
+			$semanticData = new SemanticData( $this->subject->getDataItem() );
+			$store = ApplicationFactory::getInstance()->getStore();
 
 			$html .= $this->displayHead();
 
 			if ( $this->showoutgoing ) {
-				$data = \SMW\StoreFactory::getStore()->getSemanticData( $this->subject->getDataItem() );
-				$html .= $this->displayData( $data, $leftside );
+				$semanticData = $store->getSemanticData( $this->subject->getDataItem() );
+				$html .= $this->displayData( $semanticData, $leftside );
 				$html .= $this->displayCenter();
 			}
 
@@ -129,9 +147,12 @@ class SMWSpecialBrowse extends SpecialPage {
 
 			$this->articletext = $this->subject->getWikiValue();
 
+			\Hooks::run( 'SMW::Browse::AfterDataLookupComplete', array( $store, $semanticData, &$html, &$modules ) );
+			$this->getOutput()->addModules( $modules );
+
 			// Add a bit space between the factbox and the query form
 			if ( !$this->including() ) {
-				$html .= "<p> &#160; </p>\n";
+				$html .= '<div style="margin-top:15px;"></div>' ."\n";
 			}
 		}
 
@@ -139,7 +160,7 @@ class SMWSpecialBrowse extends SpecialPage {
 			$html .= $this->queryForm();
 		}
 
-		$wgOut->addHTML( $html );
+		$this->getOutput()->addHTML( $html );
 	}
 
 	/**
@@ -149,7 +170,7 @@ class SMWSpecialBrowse extends SpecialPage {
 	 * @param[in] $left bool  Should properties be displayed on the left side?
 	 * @param[in] $incoming bool  Is this an incoming? Or an outgoing?
 	 *
-	 * @return A string containing the HTML with the factbox
+	 * @return string A string containing the HTML with the factbox
 	 */
 	private function displayData( SMWSemanticData $data, $left = true, $incoming = false ) {
 		// Some of the CSS classes are different for the left or the right side.
@@ -161,7 +182,7 @@ class SMWSpecialBrowse extends SpecialPage {
 		$diProperties = $data->getProperties();
 		$noresult = true;
 		foreach ( $diProperties as $key => $diProperty ) {
-			$dvProperty = \SMW\DataValueFactory::getInstance()->newDataItemValue( $diProperty, null );
+			$dvProperty = DataValueFactory::getInstance()->newDataValueByItem( $diProperty, null );
 
 			if ( $dvProperty->isVisible() ) {
 				$dvProperty->setCaption( $this->getPropertyLabel( $dvProperty, $incoming ) );
@@ -180,7 +201,7 @@ class SMWSpecialBrowse extends SpecialPage {
 
 			$values = $data->getPropertyValues( $diProperty );
 
-			if ( $incoming && ( count( $values ) >= SMWSpecialBrowse::$incomingvaluescount ) ) {
+			if ( $incoming && ( count( $values ) >= self::$incomingvaluescount ) ) {
 				$moreIncoming = true;
 				array_pop( $values );
 			} else {
@@ -196,16 +217,18 @@ class SMWSpecialBrowse extends SpecialPage {
 				}
 
 				if ( $incoming ) {
-					$dv = \SMW\DataValueFactory::getInstance()->newDataItemValue( $di, null );
+					$dv = DataValueFactory::getInstance()->newDataValueByItem( $di, null );
 				} else {
-					$dv = \SMW\DataValueFactory::getInstance()->newDataItemValue( $di, $diProperty );
+					$dv = DataValueFactory::getInstance()->newDataValueByItem( $di, $diProperty );
 				}
 
 				$body .= "<span class=\"{$ccsPrefix}value\">" .
 				         $this->displayValue( $dvProperty, $dv, $incoming ) . "</span>\n";
 			}
 
-			if ( $moreIncoming ) { // link to the remaining incoming pages:
+			// Added in 2.3
+			// link to the remaining incoming pages
+			if ( $moreIncoming && \Hooks::run( 'SMW::Browse::BeforeIncomingPropertyValuesFurtherLinkCreate', array( $diProperty, $this->subject->getDataItem(), &$body ) ) ) {
 				$body .= Html::element(
 					'a',
 					array(
@@ -247,6 +270,24 @@ class SMWSpecialBrowse extends SpecialPage {
 	private function displayValue( SMWPropertyValue $property, SMWDataValue $dataValue, $incoming ) {
 		$linker = smwfGetLinker();
 
+		// Allow the DV formatter to access a specific language code
+		$dataValue->setOption(
+			'content.language',
+			Localizer::getInstance()->getPreferredContentLanguage( $this->subject->getDataItem() )->getCode()
+		);
+
+		$dataValue->setOption(
+			'user.language',
+			Localizer::getInstance()->getUserLanguage()->getCode()
+		);
+
+		$dataValue->setContextPage(
+			$this->subject->getDataItem()
+		);
+
+		// Use LOCL formatting where appropriate (date)
+		$dataValue->setOutputFormat( 'LOCL' );
+
 		$html = $dataValue->getLongHTMLText( $linker );
 
 		if ( $dataValue->getTypeID() === '_wpg' || $dataValue->getTypeID() === '__sob' ) {
@@ -263,7 +304,7 @@ class SMWSpecialBrowse extends SpecialPage {
 	/**
 	 * Displays the subject that is currently being browsed to.
 	 *
-	 * @return A string containing the HTML with the subject line
+	 * @return string A string containing the HTML with the subject line
 	 */
 	private function displayHead() {
 		global $wgOut;
@@ -304,10 +345,10 @@ class SMWSpecialBrowse extends SpecialPage {
 		global $smwgBrowseShowAll;
 		if ( !$smwgBrowseShowAll ) {
 			if ( ( $this->offset > 0 ) || $more ) {
-				$offset = max( $this->offset - SMWSpecialBrowse::$incomingpropertiescount + 1, 0 );
+				$offset = max( $this->offset - self::$incomingpropertiescount + 1, 0 );
 				$html .= ( $this->offset == 0 ) ? wfMessage( 'smw_result_prev' )->text():
 					     $this->linkHere( wfMessage( 'smw_result_prev' )->text(), $this->showoutgoing, true, $offset );
-				$offset = $this->offset + SMWSpecialBrowse::$incomingpropertiescount - 1;
+				$offset = $this->offset + self::$incomingpropertiescount - 1;
 				// @todo FIXME: i18n patchwork.
 				$html .= " &#160;&#160;&#160;  <strong>" . wfMessage( 'smw_result_results' )->text() . " " . ( $this->offset + 1 ) .
 						 " – " . ( $offset ) . "</strong>  &#160;&#160;&#160; ";
@@ -354,14 +395,15 @@ class SMWSpecialBrowse extends SpecialPage {
 		$indata = new SMWSemanticData( $this->subject->getDataItem() );
 		$options = new SMWRequestOptions();
 		$options->sort = true;
-		$options->limit = SMWSpecialBrowse::$incomingpropertiescount;
+		$options->limit = self::$incomingpropertiescount;
 		if ( $this->offset > 0 ) {
 			$options->offset = $this->offset;
 		}
 
-		$inproperties = \SMW\StoreFactory::getStore()->getInProperties( $this->subject->getDataItem(), $options );
+		$store = ApplicationFactory::getInstance()->getStore();
+		$inproperties = $store->getInProperties( $this->subject->getDataItem(), $options );
 
-		if ( count( $inproperties ) == SMWSpecialBrowse::$incomingpropertiescount ) {
+		if ( count( $inproperties ) == self::$incomingpropertiescount ) {
 			$more = true;
 			array_pop( $inproperties ); // drop the last one
 		} else {
@@ -370,14 +412,17 @@ class SMWSpecialBrowse extends SpecialPage {
 
 		$valoptions = new SMWRequestOptions();
 		$valoptions->sort = true;
-		$valoptions->limit = SMWSpecialBrowse::$incomingvaluescount;
+		$valoptions->limit = self::$incomingvaluescount;
 
 		foreach ( $inproperties as $property ) {
-			$values = \SMW\StoreFactory::getStore()->getPropertySubjects( $property, $this->subject->getDataItem(), $valoptions );
+			$values = $store->getPropertySubjects( $property, $this->subject->getDataItem(), $valoptions );
 			foreach ( $values as $value ) {
 				$indata->addPropertyObjectValue( $property, $value );
 			}
 		}
+
+		// Added in 2.3
+		\Hooks::run( 'SMW::Browse::AfterIncomingPropertiesLookupComplete', array( $store, $indata, $valoptions ) );
 
 		return array( $indata, $more );
 	}
@@ -397,7 +442,7 @@ class SMWSpecialBrowse extends SpecialPage {
 
 		if ( $incoming && $smwgBrowseShowInverse ) {
 			$oppositeprop = SMWPropertyValue::makeUserProperty( wfMessage( 'smw_inverse_label_property' )->text() );
-			$labelarray = \SMW\StoreFactory::getStore()->getPropertyValues( $property->getDataItem()->getDiWikiPage(), $oppositeprop->getDataItem() );
+			$labelarray = ApplicationFactory::getInstance()->getStore()->getPropertyValues( $property->getDataItem()->getDiWikiPage(), $oppositeprop->getDataItem() );
 			$rv = ( count( $labelarray ) > 0 ) ? $labelarray[0]->getLongWikiText():
 				wfMessage( 'smw_inverse_label_default', $property->getWikiValue() )->text();
 		} else {
@@ -410,16 +455,21 @@ class SMWSpecialBrowse extends SpecialPage {
 	/**
 	 * Creates the query form in order to quickly switch to a specific article.
 	 *
-	 * @return A string containing the HTML for the form
+	 * @return string A string containing the HTML for the form
 	 */
 	private function queryForm() {
+
+		if ( $this->getRequest()->getVal( 'printable' ) === 'yes' ) {
+			return '';
+		}
+
 		SMWOutputs::requireResource( 'ext.smw.browse' );
 		$title = SpecialPage::getTitleFor( 'Browse' );
 		return '  <form name="smwbrowse" action="' . htmlspecialchars( $title->getLocalURL() ) . '" method="get">' . "\n" .
 			'    <input type="hidden" name="title" value="' . $title->getPrefixedText() . '"/>' .
 			wfMessage( 'smw_browse_article' )->text() . "<br />\n" .
-		    '    <input type="text" name="article" id="page_input_box" value="' . htmlspecialchars( $this->articletext ) . '" />' . "\n" .
-		    '    <input type="submit" value="' . wfMessage( 'smw_browse_go' )->text() . "\"/>\n" .
+		    ' <div class="browse-input-resp"> <div class="input-field"><input type="text" name="article" size="40" id="page_input_box" class="input mw-ui-input" value="' . htmlspecialchars( $this->articletext ) . '" /></div>' .
+		    ' <div class="button-field"><input type="submit" class="input-button mw-ui-button" value="' . wfMessage( 'smw_browse_go' )->text() . "\"/></div></div>\n" .
 		    "  </form>\n";
 	}
 
@@ -433,5 +483,39 @@ class SMWSpecialBrowse extends SpecialPage {
 		$nonBreakingSpace = html_entity_decode( '&#160;', ENT_NOQUOTES, 'UTF-8' );
 		$text = preg_replace( '/[\s]/u', $nonBreakingSpace, $text, - 1, $count );
 		return $count > 2 ? preg_replace( '/($nonBreakingSpace)/u', ' ', $text, max( 0, $count - 2 ) ):$text;
+	}
+
+	/**
+	 * FIXME MW 1.25
+	 */
+	private function addExternalHelpLinks() {
+
+		if ( !method_exists( $this, 'addHelpLink' ) || ( $this->getRequest()->getVal( 'printable' ) === 'yes' ) ) {
+			return null;
+		}
+
+		if ( $this->subject->isValid() ) {
+			$link = SpecialPage::getTitleFor( 'ExportRDF', $this->subject->getTitle()->getPrefixedText() )->getLocalUrl( 'syntax=rdf' );
+
+			$this->getOutput()->setIndicators( array(
+				Html::rawElement(
+					'div',
+					array(
+						'class' => 'mw-indicator smw-page-indicator-rdflink'
+					),
+					Html::rawElement(
+						'a',
+						array(
+							'href' => $link
+					), 'RDF' )
+				)
+			) );
+		}
+
+		$this->addHelpLink( wfMessage( 'smw-specials-browse-helplink' )->escaped(), true );
+	}
+
+	protected function getGroupName() {
+		return 'smw_group';
 	}
 }

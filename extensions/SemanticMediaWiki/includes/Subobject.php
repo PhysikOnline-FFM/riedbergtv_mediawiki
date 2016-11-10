@@ -2,12 +2,11 @@
 
 namespace SMW;
 
-use SMWContainerSemanticData;
-use SMWDIContainer;
-use SMWDataValue;
-
-use Title;
 use InvalidArgumentException;
+use SMWContainerSemanticData;
+use SMWDataValue;
+use SMWDIContainer;
+use Title;
 
 /**
  * @see http://www.semantic-mediawiki.org/wiki/Help:Subobject
@@ -84,10 +83,10 @@ class Subobject {
 	/**
 	 * @since 1.9
 	 *
-	 * @param array $error
+	 * @param array|string $error
 	 */
-	protected function addError( array $error ) {
-		$this->errors = array_merge( $this->errors, $error );
+	public function addError( $error ) {
+		$this->errors = array_merge( $this->errors, (array)$error );
 	}
 
 	/**

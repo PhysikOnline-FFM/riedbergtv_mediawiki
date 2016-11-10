@@ -220,7 +220,7 @@ class SMWInfolink {
 
 		if ( $this->mInternal ) {
 			if ( count( $this->mParams ) > 0 ) {
-				$titletext = $this->mTarget . '/' . SMWInfolink::encodeParameters( $this->mParams );
+				$titletext = $this->mTarget . '/' . self::encodeParameters( $this->mParams );
 			} else {
 				$titletext = $this->mTarget;
 			}
@@ -241,13 +241,13 @@ class SMWInfolink {
 
 				if ( !is_null( $title ) ) {
 					if ( $outputformat == SMW_OUTPUT_WIKI ) {
-						$link = '[' . $title->getFullURL( SMWInfolink::encodeParameters( $this->mParams, false ) ) . " $this->mCaption]";
+						$link = '[' . $title->getFullURL( self::encodeParameters( $this->mParams, false ) ) . " $this->mCaption]";
 					} else { // SMW_OUTPUT_HTML, SMW_OUTPUT_FILE
 						$link = $this->getLinker( $linker )->link(
 							$title,
 							$this->mCaption,
 							array(),
-							SMWInfolink::encodeParameters( $this->mParams, false )
+							self::encodeParameters( $this->mParams, false )
 						);
 					}
 				} else {
@@ -297,16 +297,16 @@ class SMWInfolink {
 			$title = Title::newFromText( $this->mTarget );
 
 			if ( !is_null( $title ) ) {
-				return $title->getFullURL( SMWInfolink::encodeParameters( $this->mParams, false ) );
+				return $title->getFullURL( self::encodeParameters( $this->mParams, false ) );
 			} else {
 				return ''; // the title was bad, normally this would indicate a software bug
 			}
 		} else {
 			if ( count( $this->mParams ) > 0 ) {
 				if ( strpos( SMWExporter::getInstance()->expandURI( '&wikiurl;' ), '?' ) === false ) {
-					$target = $this->mTarget . '?' . SMWInfolink::encodeParameters( $this->mParams, false );
+					$target = $this->mTarget . '?' . self::encodeParameters( $this->mParams, false );
 				} else {
-					$target = $this->mTarget . '&' . SMWInfolink::encodeParameters( $this->mParams, false );
+					$target = $this->mTarget . '&' . self::encodeParameters( $this->mParams, false );
 				}
 			} else {
 				$target = $this->mTarget;
@@ -326,7 +326,7 @@ class SMWInfolink {
 	 */
 	protected function getLinker( &$linker = null ) {
 		if ( is_null( $linker ) ) {
-			$linker = class_exists('DummyLinker') ? new DummyLinker : new Linker;
+			$linker = new Linker;
 		}
 		return $linker;
 	}
@@ -406,7 +406,7 @@ class SMWInfolink {
 				if ( $result !== '' ) {
 					$result = '&' . $result;
 				}
-				$result = 'x=' . rawurlencode( SMWInfolink::encodeParameters( $q, true ) ) . $result;
+				$result = 'x=' . rawurlencode( self::encodeParameters( $q, true ) ) . $result;
 			}
 		}
 
@@ -461,14 +461,7 @@ class SMWInfolink {
 
 			foreach ( $ps as $p ) {
 				if ( $p !== '' ) {
-					$p = rawurldecode( str_replace( '-', '%', $p ) );
-					$parts = explode( '=', $p, 2 );
-
-					if ( count( $parts ) > 1 ) {
-						$result[$parts[0]] = $parts[1];
-					} else {
-						$result[] = $p;
-					}
+					$result[] = rawurldecode( str_replace( '-', '%', $p ) );
 				}
 			}
 		}

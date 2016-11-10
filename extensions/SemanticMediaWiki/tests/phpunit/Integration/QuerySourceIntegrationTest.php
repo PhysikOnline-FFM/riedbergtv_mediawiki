@@ -3,7 +3,6 @@
 namespace SMW\Tests\Integration;
 
 use SMW\StoreFactory;
-
 use SMWQueryProcessor;
 
 /**
@@ -116,7 +115,7 @@ class QuerySourceIntegrationTest extends \PHPUnit_Framework_TestCase {
 			->will( $this->returnValue( $description ) );
 
 		$query->expects( $this->atLeastOnce() )
-			->method( 'getOffset' )
+			->method( 'getLimit' )
 			->will( $this->returnValue( 0 ) );
 
 		$count = $this->setupStore( 'default' )

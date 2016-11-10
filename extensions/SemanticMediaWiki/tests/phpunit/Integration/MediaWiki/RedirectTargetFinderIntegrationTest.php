@@ -2,11 +2,11 @@
 
 namespace SMW\Tests\Integration\MediaWiki;
 
+use SMW\ApplicationFactory;
+use SMW\DIProperty;
+use SMW\DIWikiPage;
 use SMW\Tests\MwDBaseUnitTestCase;
 use SMW\Tests\Utils\UtilityFactory;
-use SMW\DIWikiPage;
-use SMW\DIProperty;
-use SMW\ApplicationFactory;
 use Title;
 
 /**
@@ -29,6 +29,11 @@ class RedirectTargetFinderIntegrationTest extends MwDBaseUnitTestCase {
 
 	protected function setUp() {
 		parent::setUp();
+
+		$this->testEnvironment->addConfiguration(
+			'smwgEnabledDeferredUpdate',
+			false
+		);
 
 		$this->pageCreator = UtilityFactory::getInstance()->newPageCreator();
 		$this->semanticDataValidator = UtilityFactory::getInstance()->newValidatorFactory()->newSemanticDataValidator();
@@ -78,6 +83,8 @@ class RedirectTargetFinderIntegrationTest extends MwDBaseUnitTestCase {
 			->getPage()
 			->getTitle()
 			->moveTo( $target, false, 'test', true );
+
+		$this->testEnvironment->executePendingDeferredUpdates();
 
 		$expected = array(
 			new DIProperty( '_REDI' )
@@ -221,7 +228,7 @@ class RedirectTargetFinderIntegrationTest extends MwDBaseUnitTestCase {
 
 		// Store will point towards the correct target
 		$expectedRedirect = DIWikiPage::newFromTitle(
-			Title::newFromText( 'DeepRedirectTargetResolverToDetectCircularTarget/1' )
+			Title::newFromText( 'DeepRedirectTargetResolverToDetectCircularTarget/2' )
 		);
 
 		$this->assertEquals(

@@ -1,20 +1,13 @@
 <?php
 
-use SMW\DIConcept;
-use SMW\SQLStore\PropertyTableInfoFetcher;
-use SMW\SQLStore\QueryEngine\ConceptCache;
-use SMW\SQLStore\SQLStoreFactory;
-use SMW\SQLStore\WantedPropertiesCollector;
-use SMW\SQLStore\UnusedPropertiesCollector;
-use SMW\SQLStore\PropertiesCollector;
-use SMW\SQLStore\StatisticsCollector;
 use SMW\DataTypeRegistry;
-use SMW\Settings;
-use SMW\SQLStore\TableDefinition;
-use SMW\SQLStore\ListLookup\ListLookupCache;
-use SMW\DIWikiPage;
+use SMW\DIConcept;
 use SMW\DIProperty;
+use SMW\DIWikiPage;
 use SMW\SemanticData;
+use SMW\SQLStore\PropertyTableInfoFetcher;
+use SMW\SQLStore\SQLStoreFactory;
+use SMW\SQLStore\TableDefinition;
 
 /**
  * SQL-based implementation of SMW's storage abstraction layer.
@@ -33,6 +26,7 @@ define( 'SMW_SQL3_SMWIW_OUTDATED', ':smw' ); // virtual "interwiki prefix" for o
 define( 'SMW_SQL3_SMWREDIIW', ':smw-redi' ); // virtual "interwiki prefix" for SMW objects that are redirected
 define( 'SMW_SQL3_SMWBORDERIW', ':smw-border' ); // virtual "interwiki prefix" separating very important pre-defined properties from the rest
 define( 'SMW_SQL3_SMWINTDEFIW', ':smw-intprop' ); // virtual "interwiki prefix" marking internal (invisible) predefined properties
+define( 'SMW_SQL3_SMWDELETEIW', ':smw-delete' ); // virtual "interwiki prefix" marking a deleted subject, see #1100
 
 /**
  * Storage access class for using the standard MediaWiki SQL database for
@@ -52,12 +46,22 @@ define( 'SMW_SQL3_SMWINTDEFIW', ':smw-intprop' ); // virtual "interwiki prefix" 
 class SMWSQLStore3 extends SMWStore {
 
 	/**
+	 * Specifies the border limit (upper bound) for pre-defined properties used
+	 * in the ID_TABLE
+	 *
+	 * When changing the upper bound, please make sure to copy the current upper
+	 * bound as legcy to the SMWSQLStore3SetupHandlers::checkPredefinedPropertyBorder
+	 */
+	const FIXED_PROPERTY_ID_UPPERBOUND = 50;
+
+	/**
 	 * Name of the table to store the concept cache in.
 	 *
 	 * @note This should never change. If it is changed, the concept caches
 	 * will appear empty until they are recomputed.
 	 */
 	const CONCEPT_CACHE_TABLE = 'smw_concept_cache';
+	const CONCEPT_TABLE = 'smw_fpt_conc';
 
 	/**
 	 * Name of the table to store the concept cache in.
@@ -68,6 +72,16 @@ class SMWSQLStore3 extends SMWStore {
 	const PROPERTY_STATISTICS_TABLE = 'smw_prop_stats';
 
 	/**
+	 * Name of the table that manages the query dependency links
+	 */
+	const QUERY_LINKS_TABLE = 'smw_query_links';
+
+	/**
+	 * Name of the table that manages the Store IDs
+	 */
+	const ID_TABLE = 'smw_object_ids';
+
+	/**
 	 * @var SQLStoreFactory
 	 */
 	private $factory;
@@ -76,6 +90,16 @@ class SMWSQLStore3 extends SMWStore {
 	 * @var PropertyTableInfoFetcher|null
 	 */
 	private $propertyTableInfoFetcher = null;
+
+	/**
+	 * @var PropertyTableIdReferenceFinder
+	 */
+	private $propertyTableIdReferenceFinder;
+
+	/**
+	 * @var RequestOptionsProcessor|null
+	 */
+	private $requestOptionsProcessor = null;
 
 	/**
 	 * Object to access the SMW IDs table.
@@ -141,11 +165,18 @@ class SMWSQLStore3 extends SMWStore {
 	public $m_sdstate = array();
 
 	/**
+	 * @var CachedValueLookupStore
+	 */
+	private $cachedValueLookupStore = null;
+
+	/**
 	 * @since 1.8
 	 */
 	public function __construct() {
 		$this->smwIds = new SMWSql3SmwIds( $this );
 		$this->factory = new SQLStoreFactory( $this );
+
+		$this->cachedValueLookupStore = $this->factory->newCachedValueLookupStore();
 	}
 
 	/**
@@ -220,30 +251,56 @@ class SMWSQLStore3 extends SMWStore {
 	}
 
 	public function getSemanticData( DIWikiPage $subject, $filter = false ) {
-		return $this->getReader()->getSemanticData( $subject, $filter );
+
+		$result = $this->cachedValueLookupStore->getSemanticData(
+			$subject,
+			$filter
+		);
+
+		return $result;
 	}
 
 	/**
 	 * @param mixed $subject
 	 * @param DIProperty $property
-	 * @param null $requestoptions
+	 * @param null $requestOptions
 	 *
 	 * @return SMWDataItem[]
 	 */
-	public function getPropertyValues( $subject, DIProperty $property, $requestoptions = null ) {
-		return $this->getReader()->getPropertyValues( $subject, $property, $requestoptions );
+	public function getPropertyValues( $subject, DIProperty $property, $requestOptions = null ) {
+
+		$result = $this->cachedValueLookupStore->getPropertyValues(
+			$subject,
+			$property,
+			$requestOptions
+		);
+
+		return $result;
 	}
 
-	public function getPropertySubjects( DIProperty $property, $value, $requestoptions = null ) {
-		return $this->getReader()->getPropertySubjects( $property, $value, $requestoptions );
+	public function getPropertySubjects( DIProperty $property, $dataItem, $requestOptions = null ) {
+
+		$result = $this->cachedValueLookupStore->getPropertySubjects(
+			$property,
+			$dataItem,
+			$requestOptions
+		);
+
+		return $result;
 	}
 
 	public function getAllPropertySubjects( DIProperty $property, $requestoptions = null ) {
 		return $this->getReader()->getAllPropertySubjects( $property, $requestoptions );
 	}
 
-	public function getProperties( DIWikiPage $subject, $requestoptions = null ) {
-		return $this->getReader()->getProperties( $subject, $requestoptions );
+	public function getProperties( DIWikiPage $subject, $requestOptions = null ) {
+
+		$result = $this->cachedValueLookupStore->getProperties(
+			$subject,
+			$requestOptions
+		);
+
+		return $result;
 	}
 
 	public function getInProperties( SMWDataItem $value, $requestoptions = null ) {
@@ -262,18 +319,59 @@ class SMWSQLStore3 extends SMWStore {
 		return $this->writer;
 	}
 
-	public function deleteSubject( Title $subject ) {
-		$this->getWriter()->deleteSubject( $subject );
+	public function deleteSubject( Title $title ) {
+
+		$subject = DIWikiPage::newFromTitle( $title );
+
+		$this->cachedValueLookupStore->deleteFor(
+			$subject
+		);
+
+		$this->getWriter()->deleteSubject( $title );
+
+		$this->doDeferredCachedListLookupUpdate(
+			$subject
+		);
 	}
 
-	protected function doDataUpdate( SemanticData $data ) {
-		$this->getWriter()->doDataUpdate( $data );
+	protected function doDataUpdate( SemanticData $semanticData ) {
+
+		$this->cachedValueLookupStore->deleteFor(
+			$semanticData->getSubject()
+		);
+
+		$this->getWriter()->doDataUpdate( $semanticData );
+
+		$this->doDeferredCachedListLookupUpdate(
+			$semanticData->getSubject()
+		);
 	}
 
 	public function changeTitle( Title $oldtitle, Title $newtitle, $pageid, $redirid = 0 ) {
+
+		$this->cachedValueLookupStore->deleteFor(
+			DIWikiPage::newFromTitle( $oldtitle )
+		);
+
+		$this->cachedValueLookupStore->deleteFor(
+			DIWikiPage::newFromTitle( $newtitle )
+		);
+
 		$this->getWriter()->changeTitle( $oldtitle, $newtitle, $pageid, $redirid );
+
+		$this->doDeferredCachedListLookupUpdate(
+			DIWikiPage::newFromTitle( $oldtitle )
+		);
 	}
 
+	private function doDeferredCachedListLookupUpdate( DIWikiPage $subject ) {
+
+		if ( $subject->getNamespace() !== SMW_NS_PROPERTY ) {
+			return null;
+		}
+
+		$this->factory->newDeferredCallableCachedListLookupUpdate()->pushToDeferredUpdateList();
+	}
 
 ///// Query answering /////
 
@@ -290,11 +388,12 @@ class SMWSQLStore3 extends SMWStore {
 
 		$result = null;
 
-		if ( wfRunHooks( 'SMW::Store::BeforeQueryResultLookupComplete', array( $this, $query, &$result ) ) ) {
+		if ( \Hooks::run( 'SMW::Store::BeforeQueryResultLookupComplete', array( $this, $query, &$result ) ) ) {
 			$result = $this->fetchQueryResult( $query );
 		}
 
-		wfRunHooks( 'SMW::Store::AfterQueryResultLookupComplete', array( $this, &$result ) );
+		\Hooks::run( 'SMW::SQLStore::AfterQueryResultLookupComplete', array( $this, &$result ) );
+		\Hooks::run( 'SMW::Store::AfterQueryResultLookupComplete', array( $this, &$result ) );
 
 		return $result;
 	}
@@ -308,73 +407,32 @@ class SMWSQLStore3 extends SMWStore {
 	/**
 	 * @param RequestOptions|null $requestOptions
 	 *
-	 * @return ListLookup
+	 * @return CachedListLookup
 	 */
 	public function getPropertiesSpecial( $requestOptions = null ) {
-
-		$propertyUsageListLookup = $this->factory->newPropertyUsageListLookup(
-			$requestOptions
-		);
-
-		$cachedListLookup = $this->factory->newCachedListLookup(
-			$propertyUsageListLookup,
-			self::$configuration->get( 'smwgPropertiesCache' ),
-			self::$configuration->get( 'smwgPropertiesCacheExpiry' )
-		);
-
-		return $cachedListLookup;
+		return $this->factory->newPropertyUsageCachedListLookup( $requestOptions );
 	}
 
 	/**
 	 * @param RequestOptions|null $requestOptions
 	 *
-	 * @return ListLookup
+	 * @return CachedListLookup
 	 */
 	public function getUnusedPropertiesSpecial( $requestOptions = null ) {
-
-		$unusedPropertyListLookup = $this->factory->newUnusedPropertyListLookup(
-			$requestOptions
-		);
-
-		$cachedListLookup = $this->factory->newCachedListLookup(
-			$unusedPropertyListLookup,
-			self::$configuration->get( 'smwgUnusedPropertiesCache' ),
-			self::$configuration->get( 'smwgUnusedPropertiesCacheExpiry' )
-		);
-
-		return $cachedListLookup;
+		return $this->factory->newUnusedPropertyCachedListLookup( $requestOptions );
 	}
 
 	/**
 	 * @param RequestOptions|null $requestOptions
 	 *
-	 * @return ListLookup
+	 * @return CachedListLookup
 	 */
 	public function getWantedPropertiesSpecial( $requestOptions = null ) {
-
-		$undeclaredPropertyListLookup = $this->factory->newUndeclaredPropertyListLookup(
-			$requestOptions,
-			self::$configuration->get( 'smwgPDefaultType' )
-		);
-
-		$cachedListLookup = $this->factory->newCachedListLookup(
-			$undeclaredPropertyListLookup,
-			self::$configuration->get( 'smwgWantedPropertiesCache' ),
-			self::$configuration->get( 'smwgWantedPropertiesCacheExpiry' )
-		);
-
-		return $cachedListLookup;
+		return $this->factory->newUndeclaredPropertyCachedListLookup( $requestOptions );
 	}
 
 	public function getStatistics() {
-
-		$cachedListLookup = $this->factory->newCachedListLookup(
-			$this->factory->newUsageStatisticsListLookup(),
-			self::$configuration->get( 'smwgStatisticsCache' ),
-			self::$configuration->get( 'smwgStatisticsCacheExpiry' )
-		);
-
-		return $cachedListLookup->fetchList();
+		return $this->factory->newUsageStatisticsCachedListLookup()->fetchList();
 	}
 
 
@@ -396,8 +454,15 @@ class SMWSQLStore3 extends SMWStore {
 		return $this->getSetupHandler()->drop( $verbose );
 	}
 
-	public function refreshData( &$index, $count, $namespaces = false, $usejobs = true ) {
-		return $this->getSetupHandler()->refreshData( $index, $count, $namespaces, $usejobs );
+	public function refreshData( &$id, $count, $namespaces = false, $usejobs = true ) {
+
+		$byIdDataRebuildDispatcher = $this->factory->newByIdDataRebuildDispatcher();
+
+		$byIdDataRebuildDispatcher->setIterationLimit( $count );
+		$byIdDataRebuildDispatcher->setNamespacesTo( $namespaces );
+		$byIdDataRebuildDispatcher->setUpdateJobToUseJobQueueScheduler( $usejobs );
+
+		return $byIdDataRebuildDispatcher;
 	}
 
 
@@ -445,39 +510,21 @@ class SMWSQLStore3 extends SMWStore {
 ///// Helper methods, mostly protected /////
 
 	/**
-	 * Transform input parameters into a suitable array of SQL options.
-	 * The parameter $valuecol defines the string name of the column to which
-	 * sorting requests etc. are to be applied.
+	 * @see RequestOptionsProcessor::transformToSQLOptions
 	 *
 	 * @since 1.8
-	 * @param SMWRequestOptions|null $requestoptions
+	 *
+	 * @param SMWRequestOptions|null $requestOptions
 	 * @param string $valuecol
+	 *
 	 * @return array
 	 */
-	public function getSQLOptions( SMWRequestOptions $requestoptions = null, $valuecol = '' ) {
-		$sql_options = array();
-
-		if ( $requestoptions !== null ) {
-			if ( $requestoptions->limit > 0 ) {
-				$sql_options['LIMIT'] = $requestoptions->limit;
-			}
-
-			if ( $requestoptions->offset > 0 ) {
-				$sql_options['OFFSET'] = $requestoptions->offset;
-			}
-
-			if ( ( $valuecol !== '' ) && ( $requestoptions->sort ) ) {
-				$sql_options['ORDER BY'] = $requestoptions->ascending ? $valuecol : $valuecol . ' DESC';
-			}
-		}
-
-		return $sql_options;
+	public function getSQLOptions( SMWRequestOptions $requestOptions = null, $valueCol = '' ) {
+		return $this->getRequestOptionsProcessor()->transformToSQLOptions( $requestOptions, $valueCol );
 	}
 
 	/**
-	 * Transform input parameters into a suitable string of additional SQL
-	 * conditions. The parameter $valuecol defines the string name of the
-	 * column to which value restrictions etc. are to be applied.
+	 * @see RequestOptionsProcessor::transformToSQLConditions
 	 *
 	 * @since 1.8
 	 *
@@ -489,143 +536,21 @@ class SMWSQLStore3 extends SMWStore {
 	 * @return string
 	 */
 	public function getSQLConditions( SMWRequestOptions $requestOptions = null, $valueCol = '', $labelCol = '', $addAnd = true ) {
-		$sqlConds = '';
-
-		if ( $requestOptions !== null ) {
-			$db = wfGetDB( DB_SLAVE ); /// TODO avoid doing this here again, all callers should have one
-
-			if ( ( $valueCol !== '' ) && ( $requestOptions->boundary !== null ) ) { // Apply value boundary.
-				if ( $requestOptions->ascending ) {
-					$op = $requestOptions->include_boundary ? ' >= ' : ' > ';
-				} else {
-					$op = $requestOptions->include_boundary ? ' <= ' : ' < ';
-				}
-				$sqlConds .= ( $addAnd ? ' AND ' : '' ) . $valueCol . $op . $db->addQuotes( $requestOptions->boundary );
-			}
-
-			if ( $labelCol !== '' ) { // Apply string conditions.
-				foreach ( $requestOptions->getStringConditions() as $strcond ) {
-					$string = str_replace( '_', '\_', $strcond->string );
-
-					switch ( $strcond->condition ) {
-						case SMWStringCondition::STRCOND_PRE:  $string .= '%';
-						break;
-						case SMWStringCondition::STRCOND_POST: $string = '%' . $string;
-						break;
-						case SMWStringCondition::STRCOND_MID:  $string = '%' . $string . '%';
-						break;
-					}
-
-					$sqlConds .= ( ( $addAnd || ( $sqlConds !== '' ) ) ? ' AND ' : '' ) . $labelCol . ' LIKE ' . $db->addQuotes( $string );
-				}
-			}
-		}
-
-		return $sqlConds;
+		return $this->getRequestOptionsProcessor()->transformToSQLConditions( $requestOptions, $valueCol, $labelCol, $addAnd );
 	}
 
 	/**
-	 * Not in all cases can requestoptions be forwarded to the DB using
-	 * getSQLConditions() and getSQLOptions(): some data comes from caches
-	 * that do not respect the options yet. This method takes an array of
-	 * results (SMWDataItem objects) *of the same type* and applies the
-	 * given requestoptions as appropriate.
+	 * @see RequestOptionsProcessor::applyRequestOptionsTo
 	 *
 	 * @since 1.8
+	 *
 	 * @param array $data array of SMWDataItem objects
-	 * @param SMWRequestOptions|null $requestoptions
+	 * @param SMWRequestOptions|null $requestOptions
+	 *
 	 * @return SMWDataItem[]
 	 */
-	public function applyRequestOptions( array $data, SMWRequestOptions $requestoptions = null ) {
-
-		if ( ( count( $data ) == 0 ) || is_null( $requestoptions ) ) {
-			return $data;
-		}
-
-		$result = array();
-		$sortres = array();
-
-		$sampleDataItem = reset( $data );
-		$numeric = is_numeric( $sampleDataItem->getSortKey() );
-
-		$i = 0;
-
-		foreach ( $data as $item ) {
-			$ok = true; // keep datavalue only if this remains true
-
-			if ( $item instanceof DIWikiPage ) {
-				$label = $this->getWikiPageSortKey( $item );
-				$value = $label;
-			} else {
-				$label = ( $item instanceof SMWDIBlob ) ? $item->getString() : '';
-				$value = $item->getSortKey();
-			}
-
-			if ( $requestoptions->boundary !== null ) { // apply value boundary
-				$strc = $numeric ? 0 : strcmp( $value, $requestoptions->boundary );
-
-				if ( $requestoptions->ascending ) {
-					if ( $requestoptions->include_boundary ) {
-						$ok = $numeric ? ( $value >= $requestoptions->boundary ) : ( $strc >= 0 );
-					} else {
-						$ok = $numeric ? ( $value > $requestoptions->boundary ) : ( $strc > 0 );
-					}
-				} else {
-					if ( $requestoptions->include_boundary ) {
-						$ok = $numeric ? ( $value <= $requestoptions->boundary ) : ( $strc <= 0 );
-					} else {
-						$ok = $numeric ? ( $value < $requestoptions->boundary ) : ( $strc < 0 );
-					}
-				}
-			}
-
-			foreach ( $requestoptions->getStringConditions() as $strcond ) { // apply string conditions
-				switch ( $strcond->condition ) {
-					case SMWStringCondition::STRCOND_PRE:
-						$ok = $ok && ( strpos( $label, $strcond->string ) === 0 );
-						break;
-					case SMWStringCondition::STRCOND_POST:
-						$ok = $ok && ( strpos( strrev( $label ), strrev( $strcond->string ) ) === 0 );
-						break;
-					case SMWStringCondition::STRCOND_MID:
-						$ok = $ok && ( strpos( $label, $strcond->string ) !== false );
-						break;
-				}
-			}
-
-			if ( $ok ) {
-				$result[$i] = $item;
-				$sortres[$i] = $value;
-				$i++;
-			}
-		}
-
-		if ( $requestoptions->sort ) {
-			$flag = $numeric ? SORT_NUMERIC : SORT_LOCALE_STRING;
-
-			if ( $requestoptions->ascending ) {
-				asort( $sortres, $flag );
-			} else {
-				arsort( $sortres, $flag );
-			}
-
-			$newres = array();
-
-			foreach ( $sortres as $key => $value ) {
-				$newres[] = $result[$key];
-			}
-
-			$result = $newres;
-		}
-
-		if ( $requestoptions->limit > 0 ) {
-			$result = array_slice( $result, $requestoptions->offset, $requestoptions->limit );
-		} else {
-			$result = array_slice( $result, $requestoptions->offset );
-		}
-
-
-		return $result;
+	public function applyRequestOptions( array $data, SMWRequestOptions $requestOptions = null ) {
+		return $this->getRequestOptionsProcessor()->applyRequestOptionsTo( $data, $requestOptions );
 	}
 
 	/**
@@ -686,7 +611,8 @@ class SMWSQLStore3 extends SMWStore {
 	 */
 	public function changeSMWPageID( $oldid, $newid, $oldnamespace = -1,
 				$newnamespace = -1, $sdata = true, $podata = true ) {
-		$db = wfGetDB( DB_MASTER );
+
+		$db = $this->getConnection( 'mw.db' );
 
 		// Change all id entries in property tables:
 		foreach ( $this->getPropertyTables() as $proptable ) {
@@ -715,15 +641,15 @@ class SMWSQLStore3 extends SMWStore {
 		if ( $sdata && ( ( $oldnamespace == -1 ) || ( $oldnamespace == SMW_NS_CONCEPT ) ) ) {
 			if ( ( $newnamespace == -1 ) || ( $newnamespace == SMW_NS_CONCEPT ) ) {
 				$db->update( 'smw_fpt_conc', array( 's_id' => $newid ), array( 's_id' => $oldid ), __METHOD__ );
-				$db->update( SMWSQLStore3::CONCEPT_CACHE_TABLE, array( 's_id' => $newid ), array( 's_id' => $oldid ), __METHOD__ );
+				$db->update( self::CONCEPT_CACHE_TABLE, array( 's_id' => $newid ), array( 's_id' => $oldid ), __METHOD__ );
 			} else {
 				$db->delete( 'smw_fpt_conc', array( 's_id' => $oldid ), __METHOD__ );
-				$db->delete( SMWSQLStore3::CONCEPT_CACHE_TABLE, array( 's_id' => $oldid ), __METHOD__ );
+				$db->delete( self::CONCEPT_CACHE_TABLE, array( 's_id' => $oldid ), __METHOD__ );
 			}
 		}
 
 		if ( $podata ) {
-			$db->update( SMWSQLStore3::CONCEPT_CACHE_TABLE, array( 'o_id' => $newid ), array( 'o_id' => $oldid ), __METHOD__ );
+			$db->update( self::CONCEPT_CACHE_TABLE, array( 'o_id' => $newid ), array( 'o_id' => $oldid ), __METHOD__ );
 		}
 	}
 
@@ -783,39 +709,45 @@ class SMWSQLStore3 extends SMWStore {
 	}
 
 	/**
-	 * @since 2.1
-	 *
-	 * @param integer $updateFeatureFlag
-	 *
-	 * @return boolean
-	 */
-	public function canUseUpdateFeature( $updateFeatureFlag ) {
-		return $GLOBALS['smwgUFeatures'] === ( $GLOBALS['smwgUFeatures'] | $updateFeatureFlag );
-	}
-
-	/**
-	 * @note It is performance critical to make sure that the instance is only
-	 * invoked once per request
-	 *
 	 * @since 2.2
 	 *
-	 * @return PpropertyTableInfoFetcher
+	 * @return PropertyTableInfoFetcher
 	 */
 	public function getPropertyTableInfoFetcher() {
 
+		// We want a cached instance here
 		if ( $this->propertyTableInfoFetcher === null ) {
-			$this->propertyTableInfoFetcher = new PropertyTableInfoFetcher();
-
-			$this->propertyTableInfoFetcher->setCustomFixedPropertyList(
-				self::$configuration->get( 'smwgFixedProperties' )
-			);
-
-			$this->propertyTableInfoFetcher->setCustomSpecialPropertyList(
-				self::$configuration->get( 'smwgPageSpecialProperties' )
-			);
+			$this->propertyTableInfoFetcher = $this->factory->newPropertyTableInfoFetcher();
 		}
 
 		return $this->propertyTableInfoFetcher;
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return PropertyTableIdReferenceFinder
+	 */
+	public function getPropertyTableIdReferenceFinder() {
+
+		if ( $this->propertyTableIdReferenceFinder === null ) {
+			$this->propertyTableIdReferenceFinder = $this->factory->newPropertyTableIdReferenceFinder();
+		}
+
+		return $this->propertyTableIdReferenceFinder;
+	}
+
+	/**
+	 * @return RequestOptionsProcessor
+	 */
+	private function getRequestOptionsProcessor() {
+
+		// We want a cached instance here
+		if ( $this->requestOptionsProcessor === null ) {
+			$this->requestOptionsProcessor = $this->factory->newRequestOptionsProcessor();
+		}
+
+		return $this->requestOptionsProcessor;
 	}
 
 }

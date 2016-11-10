@@ -2,11 +2,9 @@
 
 namespace SMW;
 
-use SMW\Query\Language\ThingDescription;
-use SMW\Query\Language\SomeProperty as SomeProperty;
-use SMWPageLister;
-
 use Html;
+use SMW\Query\Language\NamespaceDescription;
+use SMWPageLister;
 
 /**
  * Special page that lists available concepts
@@ -45,7 +43,7 @@ class SpecialConcepts extends SpecialPage {
 	 * @return DIWikiPage[]
 	 */
 	public function getResults( $limit, $from, $until ) {
-		$description = new SomeProperty( new DIProperty( '_CONC' ), new ThingDescription() );
+		$description = new NamespaceDescription( SMW_NS_CONCEPT );
 		$query = SMWPageLister::getQuery( $description, $limit, $from, $until );
 		return $this->getStore()->getQueryResult( $query )->getResults();
 	}
@@ -101,7 +99,6 @@ class SpecialConcepts extends SpecialPage {
 	 * @param array $param
 	 */
 	public function execute( $param ) {
-		Profiler::In( __METHOD__ );
 
 		$this->getOutput()->setPageTitle( $this->msg( 'concepts' )->text() );
 
@@ -113,7 +110,9 @@ class SpecialConcepts extends SpecialPage {
 		$diWikiPages = $until !== '' ? array_reverse( $diWikiPages ) : $diWikiPages;
 
 		$this->getOutput()->addHTML( $this->getHtml( $diWikiPages, $limit, $from, $until ) );
+	}
 
-		Profiler::Out( __METHOD__ );
+	protected function getGroupName() {
+		return 'pages';
 	}
 }

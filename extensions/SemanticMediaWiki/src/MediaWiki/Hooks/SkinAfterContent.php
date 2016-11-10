@@ -50,7 +50,13 @@ class SkinAfterContent {
 
 	private function canPerformUpdate() {
 
-		if ( $this->skin->getContext()->getRequest()->getVal( 'action' ) === 'delete' ) {
+		if ( !$this->skin instanceof Skin ) {
+			return false;
+		}
+
+		$request = $this->skin->getContext()->getRequest();
+
+		if ( $request->getVal( 'action' ) === 'delete' || $request->getVal( 'action' ) === 'purge' || !ApplicationFactory::getInstance()->getSettings()->get( 'smwgSemanticsEnabled' ) ) {
 			return false;
 		}
 
@@ -59,8 +65,11 @@ class SkinAfterContent {
 
 	private function performUpdate() {
 
-		$factboxCache = ApplicationFactory::getInstance()->newFactboxBuilder()->newFactboxCache( $this->skin->getOutput() );
-		$this->data .= $factboxCache->retrieveContent();
+		$cachedFactbox = ApplicationFactory::getInstance()->newFactboxFactory()->newCachedFactbox();
+
+		$this->data .= $cachedFactbox->retrieveContent(
+			$this->skin->getOutput()
+		);
 
 		return true;
 	}

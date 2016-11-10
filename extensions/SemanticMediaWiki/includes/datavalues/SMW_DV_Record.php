@@ -1,7 +1,6 @@
 <?php
-/**
- * @ingroup SMWDataValues
- */
+
+use SMW\DataValueFactory;
 
 /**
  * SMWDataValue implements the handling of small sets of property-value pairs.
@@ -31,25 +30,43 @@ class SMWRecordValue extends SMWDataValue {
 	/// cache for properties for the fields of this data value
 	protected $m_diProperties = null;
 
-	protected function parseUserValue( $value ) {
-		$this->parseUserValueOrQuery( $value, false );
+	/**
+	 * @since 2.3
+	 *
+	 * @return DIProperty[]|null
+	 */
+	public function getProperties() {
+		return $this->m_diProperties;
 	}
 
-	protected function parseUserValueOrQuery( $value, $queryMode ) {
+	/**
+	 * @since 2.3
+	 *
+	 * @param string $value
+	 *
+	 * @return array
+	 */
+	public function getValuesFromString( $value ) {
+		// #664 / T17732
+		$value = str_replace( "\;", "-3B", $value );
+
+		// Bug 21926 / T23926
+		// Values that use html entities are encoded with a semicolon
+		$value = htmlspecialchars_decode( $value, ENT_QUOTES );
+
+		return preg_split( '/[\s]*;[\s]*/u', trim( $value ) );
+	}
+
+	protected function parseUserValue( $value ) {
+
 		if ( $value === '' ) {
 			$this->addError( wfMessage( 'smw_novalues' )->text() );
-
-			if ( $queryMode ) {
-				return new SMWThingDescription();
-			} else {
-				return;
-			}
+			return;
 		}
 
-		if ( $queryMode ) {
-			$subdescriptions = array();
-		} elseif ( is_null( $this->m_contextPage ) ) {
+		if ( is_null( $this->m_contextPage ) ) {
 			$semanticData = SMWContainerSemanticData::makeAnonymousContainer();
+			$semanticData->skipAnonymousCheck();
 		} else {
 			$subobjectName = '_' . hash( 'md4', $value, false ); // md4 is probably fastest of PHP's hashes
 			$subject = new SMWDIWikiPage( $this->m_contextPage->getDBkey(),
@@ -58,58 +75,37 @@ class SMWRecordValue extends SMWDataValue {
 			$semanticData = new SMWContainerSemanticData( $subject );
 		}
 
-		// #664 / T17732
-		$value = str_replace( "\;", "-3B", $value );
-
-		// Bug 21926 / T23926
-		// Values that use html entities are encoded with a semicolon
-		$value = htmlspecialchars_decode( $value, ENT_QUOTES );
-
-		$values = preg_split( '/[\s]*;[\s]*/u', trim( $value ) );
+		$values = $this->getValuesFromString( $value );
 		$valueIndex = 0; // index in value array
 		$propertyIndex = 0; // index in property list
 		$empty = true;
 
 		foreach ( $this->getPropertyDataItems() as $diProperty ) {
-			if ( !array_key_exists( $valueIndex, $values ) ) {
+
+			if ( !array_key_exists( $valueIndex, $values ) || $this->getErrors() !== array() ) {
 				break; // stop if there are no values left
 			}
 
 			$values[$valueIndex] = str_replace( "-3B", ";", $values[$valueIndex] );
 
-			if ( $queryMode ) { // special handling for supporting query parsing
-				$comparator = SMW_CMP_EQ;
-				self::prepareValue( $values[$valueIndex], $comparator );
-			}
-
 			// generating the DVs:
 			if ( ( $values[$valueIndex] === '' ) || ( $values[$valueIndex] == '?' ) ) { // explicit omission
 				$valueIndex++;
 			} else {
-				$dataValue = \SMW\DataValueFactory::getInstance()->newPropertyObjectValue( $diProperty, $values[$valueIndex] );
+				$dataValue = DataValueFactory::getInstance()->newDataValueByProperty(
+					$diProperty,
+					$values[$valueIndex],
+					false,
+					$this->getContextPage()
+				);
 
 				if ( $dataValue->isValid() ) { // valid DV: keep
-					if ( $queryMode ) {
-						$subdescriptions[] = new SMWSomeProperty(
-							$diProperty,
-							new SMWValueDescription(
-								$dataValue->getDataItem(),
-								$dataValue->getProperty(),
-								$comparator
-							)
-						);
-					} else {
-						$semanticData->addPropertyObjectValue( $diProperty, $dataValue->getDataItem() );
-					}
+					$semanticData->addPropertyObjectValue( $diProperty, $dataValue->getDataItem() );
 
 					$valueIndex++;
 					$empty = false;
 				} elseif ( ( count( $values ) - $valueIndex ) == ( count( $this->m_diProperties ) - $propertyIndex ) ) {
-					// too many errors: keep this one to have enough slots left
-					if ( !$queryMode ) {
-						$semanticData->addPropertyObjectValue( $diProperty, $dataValue->getDataItem() );
-					}
-
+					$semanticData->addPropertyObjectValue( $diProperty, $dataValue->getDataItem() );
 					$this->addError( $dataValue->getErrors() );
 					++$valueIndex;
 				}
@@ -117,22 +113,11 @@ class SMWRecordValue extends SMWDataValue {
 			++$propertyIndex;
 		}
 
-		if ( $empty ) {
+		if ( $empty && $this->getErrors() === array()  ) {
 			$this->addError( wfMessage( 'smw_novalues' )->text() );
 		}
 
-		if ( $queryMode ) {
-			switch ( count( $subdescriptions ) ) {
-				case 0:
-				return new SMWThingDescription();
-				case 1:
-				return reset( $subdescriptions );
-				default:
-				return new SMWConjunction( $subdescriptions );
-			}
-		} else {
-			$this->m_dataitem = new SMWDIContainer( $semanticData );
-		}
+		$this->m_dataitem = new SMWDIContainer( $semanticData );
 	}
 
 	/**
@@ -146,20 +131,12 @@ class SMWRecordValue extends SMWDataValue {
 			return true;
 		} elseif ( $dataItem->getDIType() == SMWDataItem::TYPE_WIKIPAGE ) {
 			$semanticData = new SMWContainerSemanticData( $dataItem );
-			$semanticData->copyDataFrom( \SMW\StoreFactory::getStore()->getSemanticData( $dataItem ) );
+			$semanticData->copyDataFrom( \SMW\ApplicationFactory::getInstance()->getStore()->getSemanticData( $dataItem ) );
 			$this->m_dataitem = new SMWDIContainer( $semanticData );
 			return true;
 		} else {
 			return false;
 		}
-	}
-
-	/**
-	 * Overwrite SMWDataValue::getQueryDescription() to be able to process
-	 * comparators between all values.
-	 */
-	public function getQueryDescription( $value ) {
-		return $this->parseUserValueOrQuery( $value, true );
 	}
 
 	public function getShortWikiText( $linked = null ) {
@@ -292,8 +269,8 @@ class SMWRecordValue extends SMWDataValue {
 			$propertyDiWikiPage = $diProperty->getDiWikiPage();
 
 			if ( !is_null( $propertyDiWikiPage ) ) {
-				$listDiProperty = new SMWDIProperty( '_LIST' );
-				$dataItems = \SMW\StoreFactory::getStore()->getPropertyValues( $propertyDiWikiPage, $listDiProperty );
+				$listDiProperty = new SMW\DIProperty( '_LIST' );
+				$dataItems = \SMW\ApplicationFactory::getInstance()->getStore()->getPropertyValues( $propertyDiWikiPage, $listDiProperty );
 
 				if ( count( $dataItems ) == 1 ) {
 					$propertyListValue = new SMWPropertyListValue( '__pls' );
@@ -328,7 +305,7 @@ class SMWRecordValue extends SMWDataValue {
 			$propertyValues = $this->m_dataitem->getSemanticData()->getPropertyValues( $propertyDataItem ); // combining this with next line violates PHP strict standards
 			$dataItem = reset( $propertyValues );
 			if ( $dataItem !== false ) {
-				$dataValue = \SMW\DataValueFactory::getInstance()->newDataItemValue( $dataItem, $propertyDataItem );
+				$dataValue = DataValueFactory::getInstance()->newDataValueByItem( $dataItem, $propertyDataItem );
 				$result .= $this->makeValueOutputText( $type, $dataValue, $linker );
 			} else {
 				$result .= '?';

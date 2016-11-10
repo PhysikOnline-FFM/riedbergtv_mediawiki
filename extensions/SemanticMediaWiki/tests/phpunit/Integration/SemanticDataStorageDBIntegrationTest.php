@@ -2,18 +2,15 @@
 
 namespace SMW\Tests\Integration;
 
+use SMW\ApplicationFactory;
+use SMW\DataValueFactory;
+use SMW\DIProperty;
+use SMW\DIWikiPage;
+use SMW\SemanticData;
+use SMW\Subobject;
 use SMW\Tests\MwDBaseUnitTestCase;
 use SMW\Tests\Utils\UtilityFactory;
-
-use SMW\ApplicationFactory;
-use SMW\DIWikiPage;
-use SMW\DIProperty;
-use SMW\SemanticData;
-use SMW\DataValueFactory;
-use SMW\Subobject;
-
 use SMWDIBlob as DIBlob;
-
 use Title;
 
 /**
@@ -118,7 +115,7 @@ class SemanticDataStorageDBIntegrationTest extends MwDBaseUnitTestCase {
 		$this->subjects[] = $subject = DIWikiPage::newFromTitle( Title::newFromText( __METHOD__ ) );
 		$semanticData = new SemanticData( $subject );
 
-		$dataValue = DataValueFactory::getInstance()->newPropertyValue(
+		$dataValue = DataValueFactory::getInstance()->newDataValueByText(
 			$propertyAsString,
 			'Foo',
 			false,
@@ -144,7 +141,7 @@ class SemanticDataStorageDBIntegrationTest extends MwDBaseUnitTestCase {
 		$subobject->setEmptyContainerForId( 'SomeSubobject' );
 
 		$subobject->getSemanticData()->addDataValue(
-			DataValueFactory::getInstance()->newPropertyValue( 'Foo', 'Bar' )
+			DataValueFactory::getInstance()->newDataValueByText( 'Foo', 'Bar' )
 		);
 
 		$semanticData->addPropertyObjectValue(
@@ -282,35 +279,6 @@ class SemanticDataStorageDBIntegrationTest extends MwDBaseUnitTestCase {
 			$redirect,
 			$target
 		);
-	}
-
-	public function testUseUpdateFeature() {
-
-		$smwgUFeatures = $GLOBALS['smwgUFeatures'];
-
-		$GLOBALS['smwgUFeatures'] = SMW_TRX_UPDATE | SMW_REPLACEMENT_UPDATE;
-
-		$this->pageCreator
-			->createPage( Title::newFromText( __METHOD__ . '-1' ) )
-			->doEdit( '{{#subobject:test|HasSomePageProperty=Foo-A}}' );
-
-		$this->pageCreator
-			->createPage( Title::newFromText( __METHOD__ . '-2' ) )
-			->doEdit( '{{#subobject:test|HasSomePageProperty=Foo-A}}' );
-
-		$this->pageCreator
-			->createPage( Title::newFromText( __METHOD__ . '-1' ) )
-			->doEdit( '#REDIRECT ' . '[[' . __METHOD__ . '-2' . ']]' );
-
-		$this->assertNotEmpty(
-			$this->getStore()->getSemanticData( DIWikiPage::newFromTitle( Title::newFromText( __METHOD__ . '-1' ) ) )
-		);
-
-		$this->assertNotEmpty(
-			$this->getStore()->getSemanticData( DIWikiPage::newFromTitle( Title::newFromText( __METHOD__ . '-2' ) ) )
-		);
-
-		$GLOBALS['smwgUFeatures'] = $smwgUFeatures;
 	}
 
 }

@@ -2,10 +2,9 @@
 
 namespace SMW;
 
-use SMWDataValue as DataValue;
-
-use Title;
 use ParserOutput;
+use SMWDataValue as DataValue;
+use Title;
 
 /**
  * Handling semantic data exchange with a ParserOutput object
@@ -98,6 +97,24 @@ class ParserData {
 	}
 
 	/**
+	 * @since 2.4
+	 *
+	 * @return boolean
+	 */
+	public function canModifySemanticData() {
+
+		// getExtensionData returns null if no value was set for this key
+		if (
+			$this->hasExtensionData() &&
+			$this->parserOutput->getExtensionData( 'smw-blockannotation' ) !== null &&
+			$this->parserOutput->getExtensionData( 'smw-blockannotation' ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
 	 * @since 2.1
 	 *
 	 * @return boolean
@@ -126,11 +143,9 @@ class ParserData {
 
 	/**
 	 * @since  1.9
-	 *
-	 * @return array
 	 */
-	public function addError( array $errors ) {
-		return $this->errors = array_merge( $errors, $this->errors );
+	public function addError( $error ) {
+		$this->errors = array_merge( $this->errors, (array)$error );
 	}
 
 	/**
@@ -213,6 +228,8 @@ class ParserData {
 	 */
 	public function pushSemanticDataToParserOutput() {
 
+		$this->setSemanticDataStateToParserOutputProperty();
+
 		if ( $this->hasExtensionData() ) {
 			return $this->parserOutput->setExtensionData( 'smwdata', $this->semanticData );
 		}
@@ -224,6 +241,9 @@ class ParserData {
 	 * @since 2.1
 	 */
 	public function setSemanticDataStateToParserOutputProperty() {
+
+		$this->parserOutput->setTimestamp( wfTimestampNow() );
+
 		$this->parserOutput->setProperty(
 			'smw-semanticdata-status',
 			$this->semanticData->getProperties() !== array()
@@ -243,19 +263,52 @@ class ParserData {
 	}
 
 	/**
+	 * @private This method is not for public use
+	 *
 	 * @since 1.9
 	 *
 	 * @return boolean
 	 */
-	public function updateStore() {
+	public function updateStore( $deferredUpdate = false ) {
 
 		$storeUpdater = ApplicationFactory::getInstance()->newStoreUpdater( $this->semanticData );
 
-		$storeUpdater
-			->setUpdateJobsEnabledState( $this->getUpdateJobState() )
-			->doUpdate();
+		$storeUpdater->setUpdateJobsEnabledState(
+			$this->getUpdateJobState()
+		);
+
+		DeferredCallableUpdate::releasePendingUpdates();
+
+		if ( $deferredUpdate ) {
+			$deferredCallableUpdate = ApplicationFactory::getInstance()->newDeferredCallableUpdate( function() use( $storeUpdater ) {
+				wfDebugLog( 'smw', 'DeferredCallableUpdate on ParserData::updateStore' );
+				$storeUpdater->doUpdate();
+			} );
+
+			$deferredCallableUpdate->pushToDeferredUpdateList();
+		} else {
+			$storeUpdater->doUpdate();
+		}
 
 		return true;
+	}
+
+	/**
+	 * @note ParserOutput::setLimitReportData
+	 *
+	 * @since 2.4
+	 *
+	 * @param string $key
+	 * @param string $value
+	 */
+	public function addLimitReport( $key, $value ) {
+
+		// FIXME 1.22+
+		if ( !method_exists( $this->parserOutput, 'setLimitReportData' ) ) {
+			return null;
+		}
+
+		$this->parserOutput->setLimitReportData( 'smw-limitreport-' . $key, $value );
 	}
 
 	/**

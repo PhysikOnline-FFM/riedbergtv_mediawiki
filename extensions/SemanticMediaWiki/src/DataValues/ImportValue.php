@@ -2,11 +2,9 @@
 
 namespace SMW\DataValues;
 
-use SMW\DataValues\ValueParsers\ImportValueParser;
-use SMW\DataValues\ValueParsers\ValueParserFactory;
+use SMWDataItem as DataItem;
 use SMWDataValue as DataValue;
 use SMWDIBlob as DIBlob;
-use SMWDataItem as DataItem;
 
 /**
  * This datavalue implements datavalues used by special property '_IMPO' used
@@ -52,7 +50,11 @@ class ImportValue extends DataValue {
 		);
 
 		if ( $this->importValueParser->getErrors() !== array() ) {
-			$this->addError( call_user_func_array( 'wfMessage', $this->importValueParser->getErrors() )->inContentLanguage()->text() );
+
+			foreach ( $this->importValueParser->getErrors() as $message ) {
+				$this->addError( call_user_func_array( 'wfMessage', $message )->inContentLanguage()->text() );
+			}
+
 			$this->m_dataitem = new DIBlob( 'ERROR' );
 			return;
 		}

@@ -3,17 +3,17 @@
 namespace SMW\MediaWiki;
 
 use Language;
+use Parser;
 use Revision;
 use SMW\ApplicationFactory;
+use SMW\MediaWiki\Renderer\HtmlColumnListRenderer;
+use SMW\MediaWiki\Renderer\HtmlFormRenderer;
+use SMW\MediaWiki\Renderer\HtmlTableRenderer;
+use SMW\MediaWiki\Renderer\HtmlTemplateRenderer;
+use SMW\MediaWiki\Renderer\WikitextTemplateRenderer;
 use Title;
 use User;
 use WikiPage;
-use Parser;
-use SMW\MediaWiki\Renderer\HtmlTemplateRenderer;
-use SMW\MediaWiki\Renderer\WikitextTemplateRenderer;
-use SMW\MediaWiki\Renderer\HtmlFormRenderer;
-use SMW\MediaWiki\Renderer\HtmlTableRenderer;
-use SMW\MediaWiki\Renderer\HtmlColumnListRenderer;
 
 /**
  * @license GNU GPL v2+
@@ -62,10 +62,10 @@ class MwCollaboratorFactory {
 	/**
 	 * @since 2.1
 	 *
-	 * @return MagicWordFinder
+	 * @return MagicWordsFinder
 	 */
-	public function newMagicWordFinder() {
-		return new MagicWordFinder();
+	public function newMagicWordsFinder() {
+		return new MagicWordsFinder();
 	}
 
 	/**

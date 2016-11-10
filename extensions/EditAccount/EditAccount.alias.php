@@ -8,11 +8,6 @@
 
 $specialPageAliases = array();
 
-/** Deutsch */
-$specialPageAliases['de'] = array(
-	'EditAccount' => array( 'BenuterBearbeiten', 'BenuterSchließen', 'BenuterDeaktivieren' ),
-);
-
 /** English */
 $specialPageAliases['en'] = array(
 	'EditAccount' => array( 'EditAccount', 'CloseAccount', 'DisableAccount' ),

@@ -3,26 +3,27 @@
 namespace SMW\SPARQLStore\QueryEngine;
 
 use RuntimeException;
+use SMW\CircularReferenceGuard;
 use SMW\DataTypeRegistry;
 use SMW\DIProperty;
-use SMW\CircularReferenceGuard;
+use SMW\DIWikiPage;
+use SMW\PropertyHierarchyLookup;
 use SMW\Query\Language\Description;
 use SMW\Query\Language\SomeProperty;
 use SMW\Query\Language\ThingDescription;
+use SMW\SPARQLStore\HierarchyFinder;
 use SMW\SPARQLStore\QueryEngine\Condition\Condition;
 use SMW\SPARQLStore\QueryEngine\Condition\SingletonCondition;
 use SMW\SPARQLStore\QueryEngine\Condition\TrueCondition;
-
-use SMW\SPARQLStore\QueryEngine\Interpreter\DispatchingInterpreter;
 use SMW\SPARQLStore\QueryEngine\Interpreter\ClassDescriptionInterpreter;
-use SMW\SPARQLStore\QueryEngine\Interpreter\ThingDescriptionInterpreter;
-use SMW\SPARQLStore\QueryEngine\Interpreter\SomePropertyInterpreter;
+use SMW\SPARQLStore\QueryEngine\Interpreter\ConceptDescriptionInterpreter;
 use SMW\SPARQLStore\QueryEngine\Interpreter\ConjunctionInterpreter;
 use SMW\SPARQLStore\QueryEngine\Interpreter\DisjunctionInterpreter;
+use SMW\SPARQLStore\QueryEngine\Interpreter\DispatchingDescriptionInterpreter;
 use SMW\SPARQLStore\QueryEngine\Interpreter\NamespaceDescriptionInterpreter;
+use SMW\SPARQLStore\QueryEngine\Interpreter\SomePropertyInterpreter;
+use SMW\SPARQLStore\QueryEngine\Interpreter\ThingDescriptionInterpreter;
 use SMW\SPARQLStore\QueryEngine\Interpreter\ValueDescriptionInterpreter;
-use SMW\SPARQLStore\QueryEngine\Interpreter\ConceptDescriptionInterpreter;
-
 use SMWDataItem as DataItem;
 use SMWExpElement as ExpElement;
 use SMWExpNsResource as ExpNsResource;
@@ -37,18 +38,29 @@ use SMWTurtleSerializer as TurtleSerializer;
  * @since 2.0
  *
  * @author Markus Krötzsch
+ * @author mwjames
  */
 class CompoundConditionBuilder {
 
 	/**
-	 * @var DispatchingInterpreter
+	 * @var EngineOptions
 	 */
-	private $dispatchingInterpreter = null;
+	private $engineOptions = null;
+
+	/**
+	 * @var DispatchingDescriptionInterpreter
+	 */
+	private $dispatchingDescriptionInterpreter = null;
 
 	/**
 	 * @var CircularReferenceGuard
 	 */
 	private $circularReferenceGuard = null;
+
+	/**
+	 * @var PropertyHierarchyLookup
+	 */
+	private $propertyHierarchyLookup = null;
 
 	/**
 	 * @var array
@@ -84,20 +96,32 @@ class CompoundConditionBuilder {
 	private $orderByProperty;
 
 	/**
-	 * @since 2.2
+	 * @var array
 	 */
-	public function __construct() {
+	private $redirectByVariableReplacementMap = array();
 
-		$this->dispatchingInterpreter = new DispatchingInterpreter();
-		$this->dispatchingInterpreter->addDefaultInterpreter( new ThingDescriptionInterpreter( $this ) );
+	/**
+	 * @since 2.2
+	 *
+	 * @param EngineOptions|null $engineOptions
+	 */
+	public function __construct( EngineOptions $engineOptions = null ) {
+		$this->engineOptions = $engineOptions;
 
-		$this->dispatchingInterpreter->addInterpreter( new SomePropertyInterpreter( $this ) );
-		$this->dispatchingInterpreter->addInterpreter( new ConjunctionInterpreter( $this ) );
-		$this->dispatchingInterpreter->addInterpreter( new DisjunctionInterpreter( $this ) );
-		$this->dispatchingInterpreter->addInterpreter( new NamespaceDescriptionInterpreter( $this ) );
-		$this->dispatchingInterpreter->addInterpreter( new ClassDescriptionInterpreter( $this ) );
-		$this->dispatchingInterpreter->addInterpreter( new ValueDescriptionInterpreter( $this ) );
-		$this->dispatchingInterpreter->addInterpreter( new ConceptDescriptionInterpreter( $this ) );
+		if ( $this->engineOptions === null ) {
+			$this->engineOptions = new EngineOptions();
+		}
+
+		$this->dispatchingDescriptionInterpreter = new DispatchingDescriptionInterpreter();
+		$this->dispatchingDescriptionInterpreter->addDefaultInterpreter( new ThingDescriptionInterpreter( $this ) );
+
+		$this->dispatchingDescriptionInterpreter->addInterpreter( new SomePropertyInterpreter( $this ) );
+		$this->dispatchingDescriptionInterpreter->addInterpreter( new ConjunctionInterpreter( $this ) );
+		$this->dispatchingDescriptionInterpreter->addInterpreter( new DisjunctionInterpreter( $this ) );
+		$this->dispatchingDescriptionInterpreter->addInterpreter( new NamespaceDescriptionInterpreter( $this ) );
+		$this->dispatchingDescriptionInterpreter->addInterpreter( new ClassDescriptionInterpreter( $this ) );
+		$this->dispatchingDescriptionInterpreter->addInterpreter( new ValueDescriptionInterpreter( $this ) );
+		$this->dispatchingDescriptionInterpreter->addInterpreter( new ConceptDescriptionInterpreter( $this ) );
 	}
 
 	/**
@@ -115,8 +139,8 @@ class CompoundConditionBuilder {
 	 *
 	 * @return string
 	 */
-	public function getNextVariable() {
-		return 'v' . ( ++$this->variableCounter );
+	public function getNextVariable( $prefix = 'v' ) {
+		return $prefix . ( ++$this->variableCounter );
 	}
 
 	/**
@@ -172,6 +196,24 @@ class CompoundConditionBuilder {
 	 */
 	public function getCircularReferenceGuard() {
 		return $this->circularReferenceGuard;
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @param PropertyHierarchyLookup $propertyHierarchyLookup
+	 */
+	public function setPropertyHierarchyLookup( PropertyHierarchyLookup $propertyHierarchyLookup ) {
+		$this->propertyHierarchyLookup = $propertyHierarchyLookup;
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @return PropertyHierarchyLookup
+	 */
+	public function getPropertyHierarchyLookup() {
+		return $this->propertyHierarchyLookup;
 	}
 
 	/**
@@ -236,7 +278,17 @@ class CompoundConditionBuilder {
 
 		$condition = $this->mapDescriptionToCondition( $description );
 
-		$this->addMissingOrderByConditions( $condition );
+		$this->addMissingOrderByConditions(
+			$condition
+		);
+
+		$this->addPropertyPathToMatchRedirectTargets(
+			$condition
+		);
+
+		$this->addFilterToRemoveEntitiesThatContainRedirectPredicate(
+			$condition
+		);
 
 		return $condition;
 	}
@@ -249,7 +301,7 @@ class CompoundConditionBuilder {
 	 * @return Condition
 	 */
 	public function mapDescriptionToCondition( Description $description ) {
-		return $this->dispatchingInterpreter->interpretDescription( $description );
+		return $this->dispatchingDescriptionInterpreter->interpretDescription( $description );
 	}
 
 	/**
@@ -272,6 +324,7 @@ class CompoundConditionBuilder {
 		}
 
 		$conditionAsString .= $condition->getCondition();
+		$conditionAsString .= $condition->getCogentConditionString();
 
 		if ( $condition instanceof SingletonCondition ) { // prepare for ASK, maybe rather use BIND?
 
@@ -306,6 +359,76 @@ class CompoundConditionBuilder {
 		$result = new TrueCondition();
 		$this->addOrderByDataForProperty( $result, $joinVariable, $orderByProperty );
 		return $result;
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @param DataItem|null $dataItem
+	 *
+	 * @return string|null
+	 */
+	public function tryToFindRedirectVariableForDataItem( DataItem $dataItem = null ) {
+
+		if ( !$dataItem instanceof DIWikiPage || !$this->canUseQFeature( SMW_SPARQL_QF_REDI ) ) {
+			return null;
+		}
+
+		// Maybe there is a better way to verify the "isRedirect" state other
+		// than by using the Title object
+		if ( $dataItem->getTitle() === null || !$dataItem->getTitle()->isRedirect() ) {
+			return null;
+		}
+
+		$redirectExpElement = Exporter::getInstance()->getResourceElementForWikiPage( $dataItem );
+
+		// If the resource was matched to an imported vocab then no redirect is required
+		if ( isset( $redirectExpElement->wasMatchedToImportVocab ) && $redirectExpElement->wasMatchedToImportVocab ) {
+			return null;
+		}
+
+		$valueName = TurtleSerializer::getTurtleNameForExpElement( $redirectExpElement );
+
+		// Add unknow redirect target/variable for value
+		if ( !isset( $this->redirectByVariableReplacementMap[$valueName] ) ) {
+
+			$namespaces[$redirectExpElement->getNamespaceId()] = $redirectExpElement->getNamespace();
+			$redirectByVariable = '?' . $this->getNextVariable( 'r' );
+
+			$this->redirectByVariableReplacementMap[$valueName] = array(
+				$redirectByVariable,
+				$namespaces
+			);
+		}
+
+		// Reuse an existing variable for the value to allow to be used more than
+		// once when referring to the same property/value redirect
+		list( $redirectByVariable, $namespaces ) = $this->redirectByVariableReplacementMap[$valueName];
+
+		return $redirectByVariable;
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @param integer $queryFeatureFlag
+	 *
+	 * @return boolean
+	 */
+	public function canUseQFeature( $queryFeatureFlag ) {
+
+		$canUse = true;
+
+		// Adhere additional condition
+		if ( $queryFeatureFlag === SMW_SPARQL_QF_SUBP ) {
+			$canUse = $this->engineOptions->get( 'smwgQSubpropertyDepth' ) > 0;
+		}
+
+		if ( $queryFeatureFlag === SMW_SPARQL_QF_SUBC ) {
+			$canUse = $this->engineOptions->get( 'smwgQSubcategoryDepth' ) > 0;
+		}
+
+		return $this->engineOptions->get( 'smwgSparqlQFeatures' ) === ( $this->engineOptions->get( 'smwgSparqlQFeatures' ) | $queryFeatureFlag ) && $canUse;
 	}
 
 	/**
@@ -368,6 +491,10 @@ class CompoundConditionBuilder {
 				throw new RuntimeException( "Expected a string value as sortkey" );
 			}
 
+			if ( strpos( $propertyKey, " " ) !== false ) {
+				throw new RuntimeException( "Expected the canonical form of {$propertyKey} (without any whitespace)" );
+			}
+
 			if ( !array_key_exists( $propertyKey, $condition->orderVariables ) ) { // Find missing property to sort by.
 				$this->addOrderForUnknownPropertyKey( $condition, $propertyKey );
 			}
@@ -376,7 +503,7 @@ class CompoundConditionBuilder {
 
 	private function addOrderForUnknownPropertyKey( Condition &$condition, $propertyKey ) {
 
-		if ( $propertyKey === '' ) { // order by result page sortkey
+		if ( $propertyKey === '' || $propertyKey === '#' ) { // order by result page sortkey
 
 			$this->addOrderByData(
 				$condition,
@@ -404,6 +531,75 @@ class CompoundConditionBuilder {
 		$condition->orderVariables[$propertyKey] = $auxCondition->orderVariables[$propertyKey];
 		$condition->weakConditions[$condition->orderVariables[$propertyKey]] = $auxCondition->getWeakConditionString() . $auxCondition->getCondition();
 		$condition->namespaces = array_merge( $condition->namespaces, $auxCondition->namespaces );
+	}
+
+	/**
+	 * @see http://www.w3.org/TR/sparql11-query/#propertypaths
+	 *
+	 * Query of:
+	 *
+	 * SELECT DISTINCT ?result WHERE {
+	 *	?result swivt:wikiPageSortKey ?resultsk .
+	 *	{
+	 *		?result property:FOO ?v1 .
+	 *		FILTER( ?v1sk >= "=BAR" )
+	 *		?v1 swivt:wikiPageSortKey ?v1sk .
+	 *	} UNION {
+	 *		?result property:FOO ?v2 .
+	 *	}
+	 * }
+	 *
+	 * results in:
+	 *
+	 * SELECT DISTINCT ?result WHERE {
+	 *	?result swivt:wikiPageSortKey ?resultsk .
+	 *	?r2 ^swivt:redirectsTo property:FOO .
+	 *	{
+	 *		?result ?r2 ?v1 .
+	 *		FILTER( ?v1sk >= "=BAR" )
+	 *		?v1 swivt:wikiPageSortKey ?v1sk .
+	 *	} UNION {
+	 *		?result ?r2 ?v3 .
+	 *	}
+	 * }
+	 */
+	private function addPropertyPathToMatchRedirectTargets( Condition &$condition ) {
+
+		if ( $this->redirectByVariableReplacementMap === array() ) {
+			return;
+		}
+
+		$weakConditions = array();
+		$namespaces = array();
+
+		$rediExpElement = Exporter::getInstance()->getSpecialPropertyResource( '_REDI' );
+		$namespaces[$rediExpElement->getNamespaceId()] = $rediExpElement->getNamespace();
+
+		foreach ( $this->redirectByVariableReplacementMap as $valueName => $content ) {
+			list( $redirectByVariable, $ns ) = $content;
+			$weakConditions[] = "$redirectByVariable " . "^" . $rediExpElement->getQName() . " $valueName .\n";
+			$namespaces = array_merge( $namespaces, $ns );
+		}
+
+		$condition->namespaces = array_merge( $condition->namespaces, $namespaces );
+		$condition->weakConditions += $weakConditions;
+	}
+
+	/**
+	 * @see https://www.w3.org/TR/rdf-sparql-query/#func-bound
+	 *
+	 * Remove entities that contain a "swivt:redirectsTo" predicate
+	 */
+	private function addFilterToRemoveEntitiesThatContainRedirectPredicate( Condition &$condition ) {
+
+		$rediExpElement = Exporter::getInstance()->getSpecialPropertyResource( '_REDI' );
+		$namespaces[$rediExpElement->getNamespaceId()] = $rediExpElement->getNamespace();
+
+		$boundVariable = '?' . $this->getNextVariable( 'o' );
+		$cogentCondition = " OPTIONAL { ?$this->resultVariable " . $rediExpElement->getQName() . " $boundVariable } .\n FILTER ( !bound( $boundVariable ) ) .\n";
+
+		$condition->addNamespaces( $namespaces );
+		$condition->cogentConditions[$boundVariable] = $cogentCondition;
 	}
 
 }

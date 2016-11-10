@@ -52,14 +52,15 @@ class SpecialStatsAddExtra {
 	 * @var string[]
 	 */
 	protected $messageMapper = array(
-		'PROPUSES'   => 'smw-statistics-property-instance',
-		'ERRORUSES'  => 'smw-statistics-error-count',
-		'USEDPROPS'  => 'smw-statistics-property-total',
-		'OWNPAGE'    => 'smw-statistics-property-page',
-		'DECLPROPS'  => 'smw-statistics-property-type',
-		'SUBOBJECTS' => 'smw-statistics-subobject-count',
-		'QUERY'      => 'smw-statistics-query-inline',
-		'CONCEPTS'   => 'smw-statistics-concept-count',
+		'PROPUSES'    => 'smw-statistics-property-instance',
+		'ERRORUSES'   => 'smw-statistics-error-count',
+		'USEDPROPS'   => 'smw-statistics-property-total',
+		'OWNPAGE'     => 'smw-statistics-property-page',
+		'DECLPROPS'   => 'smw-statistics-property-type',
+		'DELETECOUNT' => 'smw-statistics-delete-count',
+		'SUBOBJECTS'  => 'smw-statistics-subobject-count',
+		'QUERY'       => 'smw-statistics-query-inline',
+		'CONCEPTS'    => 'smw-statistics-concept-count',
 	);
 
 	/**
@@ -81,6 +82,11 @@ class SpecialStatsAddExtra {
 	 * @return true
 	 */
 	public function process() {
+
+		if ( !ApplicationFactory::getInstance()->getSettings()->get( 'smwgSemanticsEnabled' ) ) {
+			return true;
+		}
+
 		return version_compare( $this->version, '1.21', '<' ) ? $this->copyLegacyStatistics() : $this->copyStatistics();
 	}
 

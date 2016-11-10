@@ -3,8 +3,8 @@
 namespace SMW\Query;
 
 use SMW\DIProperty;
-use SMW\Query\PrintRequest as PrintRequest;
 use SMWPropertyValue as PropertyValue;
+use Title;
 
 /**
  * @license GNU GPL v2+
@@ -21,7 +21,7 @@ class PrintRequestFactory {
 	 *
 	 * @return PrintRequest
 	 */
-	public function newPropertyPrintRequest( DIProperty $property ) {
+	public function newPrintRequestByProperty( DIProperty $property ) {
 
 		$propertyValue = new PropertyValue( '__pro' );
 		$propertyValue->setDataItem( $property );
@@ -33,6 +33,20 @@ class PrintRequestFactory {
 		);
 
 		return $instance;
+	}
+
+	/**
+	 * @see PrintRequest::newFromText
+	 *
+	 * @since 2.4
+	 *
+	 * @param string $text
+	 * @param $showMode = false
+	 *
+	 * @return PrintRequest|null
+	 */
+	public function newPrintRequestFromText( $text, $showMode = false ) {
+		return PrintRequest::newFromText( $text, $showMode );
 	}
 
 }

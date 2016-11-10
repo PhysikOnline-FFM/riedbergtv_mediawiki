@@ -2,12 +2,9 @@
 
 namespace SMW\Tests;
 
-use SMW\Tests\Utils\UtilityFactory;
-
 use SMW\DataValueFactory;
-use SMW\DIProperty;
 use SMW\Subobject;
-
+use SMW\Tests\Utils\UtilityFactory;
 use SMWDIBlob;
 use Title;
 
@@ -121,7 +118,7 @@ class SubobjectTest extends \PHPUnit_Framework_TestCase {
 
 		foreach ( $parameters['properties'] as $property => $value ){
 
-			$dataValue = DataValueFactory::getInstance()->newPropertyValue(
+			$dataValue = DataValueFactory::getInstance()->newDataValueByText(
 				$property,
 				$value
 			);
@@ -161,7 +158,7 @@ class SubobjectTest extends \PHPUnit_Framework_TestCase {
 			->method( 'getLabel' )
 			->will( $this->returnValue( $parameters['property']['label'] ) );
 
-		$dataValue = DataValueFactory::getInstance()->newDataItemValue(
+		$dataValue = DataValueFactory::getInstance()->newDataValueByItem(
 			$parameters['dataItem'],
 			$property
 		);
@@ -292,9 +289,9 @@ class SubobjectTest extends \PHPUnit_Framework_TestCase {
 			array(
 				'errors' => 1,
 				'identifier' => 'bar',
-				'propertyCount'  => 0,
-				'propertyLabels' => '',
-				'propertyValues' => '',
+				'propertyCount'  => 1,
+				'strict-mode-valuematch' => false,
+				'propertyKeys' => array( '_ERRC' )
 			)
 		);
 
@@ -307,15 +304,13 @@ class SubobjectTest extends \PHPUnit_Framework_TestCase {
 			array(
 				'errors' => 1,
 				'identifier' => 'bar',
-				'propertyCount'  => 0,
-				'propertyLabels' => '',
-				'propertyValues' => '',
+				'propertyCount'  => 1,
+				'strict-mode-valuematch' => false,
+				'propertyKeys' => array( '_ERRC' )
 			)
 		);
 
 		// #6 / asserting that an improper value for a _wpg property would add "Has improper value for"
-		$diPropertyError = new DIProperty( DIProperty::TYPE_ERROR );
-
 		$provider[] = array(
 			array(
 				'identifier' => 'bar',
@@ -324,9 +319,9 @@ class SubobjectTest extends \PHPUnit_Framework_TestCase {
 			array(
 				'identifier' => 'bar',
 				'errors' => 1,
+				'strict-mode-valuematch' => false,
 				'propertyCount'  => 1,
-				'propertyLabels' => array( $diPropertyError->getLabel() ),
-				'propertyValues' => 'Foo',
+				'propertyKeys' => array( '_ERRC' )
 			)
 		);
 

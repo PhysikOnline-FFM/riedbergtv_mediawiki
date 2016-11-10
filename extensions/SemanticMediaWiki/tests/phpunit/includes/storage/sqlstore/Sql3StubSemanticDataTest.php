@@ -2,13 +2,12 @@
 
 namespace SMW\Tests\SQLStore;
 
-use SMW\SemanticData;
-use SMW\DIWikiPage;
 use SMW\DIProperty;
-
+use SMW\DIWikiPage;
+use SMW\SemanticData;
+use SMW\Tests\TestEnvironment;
 use SMWDITime as DITime;
 use SMWSql3StubSemanticData as StubSemanticData;
-
 use Title;
 
 /**
@@ -25,12 +24,25 @@ use Title;
 class Sql3StubSemanticDataTest extends \PHPUnit_Framework_TestCase {
 
 	private $store;
+	private $testEnvironment;
 
 	protected function setUp() {
 
-		$this->store = $this->getMockBuilder( '\SMWSQLStore3' )
+		$this->testEnvironment = new TestEnvironment();
+
+		$this->store = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
 			->disableOriginalConstructor()
 			->getMock();
+
+		$this->store->expects( $this->any() )
+			->method( 'getRedirectTarget' )
+			->will( $this->returnArgument( 0 ) );
+
+		$this->testEnvironment->registerObject( 'Store', $this->store );
+	}
+
+	protected function tearDown() {
+		$this->testEnvironment->tearDown();
 	}
 
 	public function testCanConstruct() {
@@ -97,12 +109,35 @@ class Sql3StubSemanticDataTest extends \PHPUnit_Framework_TestCase {
 	}
 
 	/**
-	 * @dataProvider removePropertyObjectProvider
+	 * @dataProvider propertyObjectProvider
 	 */
-	public function testRemovePropertyObjectValue( $title, $property, $dataItem ) {
+	public function testPhpSerialization( $property, $dataItem ) {
 
 		$instance = StubSemanticData::newFromSemanticData(
-			new SemanticData( DIWikiPage::newFromTitle( $title ) ),
+			new SemanticData( new DIWikiPage( 'Foo', NS_MAIN ) ),
+			$this->store
+		);
+
+		$instance->addPropertyObjectValue(
+			$property,
+			$dataItem
+		);
+
+		$serialization = serialize( $instance );
+
+		$this->assertEquals(
+			$instance->getHash(),
+			unserialize( $serialization )->getHash()
+		);
+	}
+
+	/**
+	 * @dataProvider propertyObjectProvider
+	 */
+	public function testRemovePropertyObjectValue( $property, $dataItem ) {
+
+		$instance = StubSemanticData::newFromSemanticData(
+			new SemanticData( new DIWikiPage( 'Foo', NS_MAIN ) ),
 			$this->store
 		);
 
@@ -113,18 +148,12 @@ class Sql3StubSemanticDataTest extends \PHPUnit_Framework_TestCase {
 		$this->assertTrue( $instance->isEmpty() );
 	}
 
-	/**
-	 * @return array
-	 */
-	public function removePropertyObjectProvider() {
+	public function propertyObjectProvider() {
 
 		$provider = array();
 
-		$title = Title::newFromText( 'Foo' );
-
 		// #0
 		$provider[] = array(
-			$title,
 			new DIProperty( '_MDAT' ),
 			DITime::newFromTimestamp( 1272508903 )
 		);

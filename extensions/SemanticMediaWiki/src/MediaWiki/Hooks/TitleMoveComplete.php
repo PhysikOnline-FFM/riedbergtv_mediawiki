@@ -4,6 +4,7 @@ namespace SMW\MediaWiki\Hooks;
 
 use SMW\ApplicationFactory;
 use SMW\Factbox\FactboxCache;
+use SMW\EventHandler;
 
 /**
  * TitleMoveComplete occurs whenever a request to move an article
@@ -61,7 +62,6 @@ class TitleMoveComplete {
 		$this->user = $user;
 		$this->oldId = $oldId;
 		$this->newId = $newId;
-		$this->applicationFactory = ApplicationFactory::getInstance();
 	}
 
 	/**
@@ -71,43 +71,46 @@ class TitleMoveComplete {
 	 */
 	public function process() {
 
-		/**
-		 * @var Settings $settings
-		 */
-		$settings = $this->applicationFactory->getSettings();
-
-		$cache = $this->applicationFactory->newCacheFactory()->newMediaWikiCompositeCache();
+		$applicationFactory = ApplicationFactory::getInstance();
 
 		// Delete all data for a non-enabled target NS
-		if ( !$this->applicationFactory->getNamespaceExaminer()->isSemanticEnabled( $this->newTitle->getNamespace() ) ) {
+		if ( !$applicationFactory->getNamespaceExaminer()->isSemanticEnabled( $this->newTitle->getNamespace() ) || $this->newId == 0 ) {
 
-			$cache->delete(
-				FactboxCache::newCacheId( $this->oldId )->generateId()
-			);
-
-			$this->applicationFactory->getStore()->deleteSubject(
+			$applicationFactory->getStore()->deleteSubject(
 				$this->oldTitle
 			);
 
 		} else {
 
-			$cache->save(
-				ArticlePurge::newCacheId( $this->newId )->generateId(),
-				$settings->get( 'smwgAutoRefreshOnPageMove' )
-			);
+		// Using a different approach since the hook is not triggered
+		// by #REDIRECT which can cause inconsistencies
+		// @see 2.3 / StoreUpdater
 
-			$cache->save(
-				ArticlePurge::newCacheId( $this->oldId )->generateId(),
-				$settings->get( 'smwgAutoRefreshOnPageMove' )
-			);
-
-			$this->applicationFactory->getStore()->changeTitle(
-				$this->oldTitle,
-				$this->newTitle,
-				$this->oldId,
-				$this->newId
-			);
+		//	$applicationFactory->getStore()->changeTitle(
+		//		$this->oldTitle,
+		//		$this->newTitle,
+		//		$this->oldId,
+		//		$this->newId
+		//	);
 		}
+
+		$eventHandler = EventHandler::getInstance();
+
+		$dispatchContext = $eventHandler->newDispatchContext();
+		$dispatchContext->set( 'title', $this->oldTitle );
+
+		$eventHandler->getEventDispatcher()->dispatch(
+			'cached.propertyvalues.prefetcher.reset',
+			$dispatchContext
+		);
+
+		$dispatchContext = $eventHandler->newDispatchContext();
+		$dispatchContext->set( 'title', $this->newTitle );
+
+		$eventHandler->getEventDispatcher()->dispatch(
+			'cached.propertyvalues.prefetcher.reset',
+			$dispatchContext
+		);
 
 		return true;
 	}

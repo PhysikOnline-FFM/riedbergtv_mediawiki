@@ -1,4 +1,8 @@
 <?php
+
+use SMW\ApplicationFactory;
+use SMW\DIProperty;
+
 /**
  * @ingroup SMWDataValues
  */
@@ -63,6 +67,11 @@ class SMWWikiPageValue extends SMWDataValue {
 	 */
 	protected $m_fixNamespace = NS_MAIN;
 
+	/**
+	 * @var array
+	 */
+	protected $linkAttributes = array();
+
 	public function __construct( $typeid ) {
 		parent::__construct( $typeid );
 		switch ( $typeid ) {
@@ -90,8 +99,21 @@ class SMWWikiPageValue extends SMWDataValue {
 		// note that this only works in pages if $smwgLinksInValues is set to true
 		$value = ltrim( rtrim( $value, ' ]' ), ' [' );
 
+		// #1066, Manipulate the output only for when the value has no caption
+		// assigned and only if a single :Foo is being present, ::Foo is not permitted
+		if ( $this->m_caption === false && isset( $value[2] ) && $value[0] === ':' && $value[1] !== ':' ) {
+			$value = substr( $value, 1 );
+		}
+
 		if ( $this->m_caption === false ) {
 			$this->m_caption = $value;
+		}
+
+		// #1701 If the DV is part of a Description and an approximate search
+		// (e.g. ~foo* / ~Foo*) then use the value as-is and avoid being
+		// transformed by the Title object
+		if ( $this->getOptionValueFor( 'approximate.comparator.context' ) ) {
+			return $this->m_dataitem = new SMWDIWikiPage( $value, NS_MAIN );
 		}
 
 		if ( $value !== '' ) {
@@ -137,24 +159,35 @@ class SMWWikiPageValue extends SMWDataValue {
 			$dataItem = $dataItem->getSemanticData()->getSubject();
 		}
 
-		if ( $dataItem->getDIType() == SMWDataItem::TYPE_WIKIPAGE ) {
-			$this->m_dataitem = $dataItem;
-			$this->m_id = -1;
-			$this->m_title = null;
-			$this->m_fragment = $dataItem->getSubobjectName();
-			$this->m_prefixedtext = '';
-			$this->m_caption = false; // this class can handle this
-
-			if ( ( $this->m_fixNamespace != NS_MAIN ) &&
-				( $this->m_fixNamespace != $dataItem->getNamespace() ) ) {
-					global $wgContLang;
-					$this->addError( wfMessage( 'smw_wrong_namespace',
-						$wgContLang->getNsText( $this->m_fixNamespace ) )->inContentLanguage()->text() );
-			}
-			return true;
-		} else {
+		if ( $dataItem->getDIType() !== SMWDataItem::TYPE_WIKIPAGE ) {
 			return false;
 		}
+
+		$this->m_dataitem = $dataItem;
+		$this->m_id = -1;
+		$this->m_title = null;
+		$this->m_fragment = $dataItem->getSubobjectName();
+		$this->m_prefixedtext = '';
+		$this->m_caption = false; // this class can handle this
+		$this->linkAttributes = array();
+
+		if ( ( $this->m_fixNamespace != NS_MAIN ) &&
+			( $this->m_fixNamespace != $dataItem->getNamespace() ) ) {
+				global $wgContLang;
+				$this->addError( wfMessage( 'smw_wrong_namespace',
+					$wgContLang->getNsText( $this->m_fixNamespace ) )->inContentLanguage()->text() );
+		}
+
+		return true;
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param array $linkAttributes
+	 */
+	public function setLinkAttributes( array $linkAttributes ) {
+		$this->linkAttributes = $linkAttributes;
 	}
 
 	/**
@@ -182,24 +215,40 @@ class SMWWikiPageValue extends SMWDataValue {
 	 * @return string
 	 */
 	public function getShortWikiText( $linked = null ) {
+
 		if ( is_null( $linked ) || $linked === false ||
 			$this->m_outformat == '-' || !$this->isValid() ||
 			$this->m_caption === '' ) {
 			return $this->m_caption !== false ? $this->m_caption : $this->getWikiValue();
-		} else {
-			if ( $this->m_dataitem->getNamespace() == NS_FILE ) {
-				$linkEscape = '';
-				$defaultCaption = '|' . $this->getShortCaptionText() . '|frameless|border|text-top';
-			} else {
-				$linkEscape = ':';
-				$defaultCaption = '|' . $this->getShortCaptionText();
-			}
-			if ( $this->m_caption === false ) {
-				return '[[' . $linkEscape . $this->getWikiLinkTarget() . $defaultCaption . ']]';
-			} else {
-				return '[[' . $linkEscape . $this->getWikiLinkTarget() . '|' . $this->m_caption . ']]';
-			}
 		}
+
+		if ( $this->m_dataitem->getNamespace() == NS_FILE && $this->m_dataitem->getInterwiki() === '' ) {
+			$linkEscape = '';
+			$defaultCaption = '|' . $this->getShortCaptionText() . '|frameless|border|text-top';
+		} else {
+			$linkEscape = ':';
+			$defaultCaption = '|' . $this->getShortCaptionText();
+		}
+
+		if ( $this->m_caption === false ) {
+			$link = '[[' . $linkEscape . $this->getWikiLinkTarget() . $defaultCaption . ']]';
+		} else {
+			$link = '[[' . $linkEscape . $this->getWikiLinkTarget() . '|' . $this->m_caption . ']]';
+		}
+
+		if ( $this->m_fragment !== '' ) {
+			$this->linkAttributes['class'] = 'smw-subobject-entity';
+		}
+
+		if ( $this->linkAttributes !== array() ) {
+			$link = \Html::rawElement(
+				'span',
+				$this->linkAttributes,
+				$link
+			);
+		}
+
+		return $link;
 	}
 
 	/**
@@ -210,6 +259,11 @@ class SMWWikiPageValue extends SMWDataValue {
 	 * @return string
 	 */
 	public function getShortHTMLText( $linker = null ) {
+
+		if ( $this->m_fragment !== '' ) {
+			$this->linkAttributes['class'] = 'smw-subobject-entity';
+		}
+
 		// init the Title object, may reveal hitherto unnoticed errors:
 		if ( !is_null( $linker ) && $linker !== false &&
 				$this->m_caption !== '' && $this->m_outformat != '-' ) {
@@ -221,16 +275,20 @@ class SMWWikiPageValue extends SMWDataValue {
 
 			$caption = $this->m_caption === false ? $this->getWikiValue() : $this->m_caption;
 			return htmlspecialchars( $caption );
-		} else {
-			$caption = $this->m_caption === false ? $this->getShortCaptionText() : $this->m_caption;
-			$caption = htmlspecialchars( $caption );
-
-			if ( $this->getNamespace() == NS_MEDIA ) { // this extra case *is* needed
-				return $linker->makeMediaLinkObj( $this->getTitle(), $caption );
-			} else {
-				return $linker->link( $this->getTitle(), $caption );
-			}
 		}
+
+		$caption = $this->m_caption === false ? $this->getShortCaptionText() : $this->m_caption;
+		$caption = htmlspecialchars( $caption );
+
+		if ( $this->getNamespace() == NS_MEDIA ) { // this extra case *is* needed
+			return $linker->makeMediaLinkObj( $this->getTitle(), $caption );
+		}
+
+		return $linker->link(
+			$this->getTitle(),
+			$caption,
+			$this->linkAttributes
+		);
 	}
 
 	/**
@@ -248,16 +306,30 @@ class SMWWikiPageValue extends SMWDataValue {
 
 		if ( is_null( $linked ) || $linked === false || $this->m_outformat == '-' ) {
 			return $this->getWikiValue();
-		} elseif ( $this->m_dataitem->getNamespace() == NS_FILE ) {
+		} elseif ( $this->m_dataitem->getNamespace() == NS_FILE && $this->m_dataitem->getInterwiki() === '' ) {
 			// Embed images and other files
 			// Note that the embedded file links to the image, hence needs no additional link text.
 			// There should not be a linebreak after an impage, just like there is no linebreak after
 			// other values (whether formatted or not).
 			return '[[' . $this->getWikiLinkTarget() . '|' .
 				$this->getLongCaptionText() . '|frameless|border|text-top]]';
-		} else {
-			return '[[:' . $this->getWikiLinkTarget() . '|' . $this->getLongCaptionText() . ']]';
 		}
+
+		$link = '[[:' . $this->getWikiLinkTarget() . '|' . $this->getLongCaptionText() . ']]';
+
+		if ( $this->m_fragment !== '' ) {
+			$this->linkAttributes['class'] = 'smw-subobject-entity';
+		}
+
+		if ( $this->linkAttributes !== array() ) {
+			$link = \Html::rawElement(
+				'span',
+				$this->linkAttributes,
+				$link
+			);
+		}
+
+		return $link;
 	}
 
 	/**
@@ -268,10 +340,16 @@ class SMWWikiPageValue extends SMWDataValue {
 	 * @return string
 	 */
 	public function getLongHTMLText( $linker = null ) {
+
+		if ( $this->m_fragment !== '' ) {
+			$this->linkAttributes['class'] = 'smw-subobject-entity';
+		}
+
 		// init the Title object, may reveal hitherto unnoticed errors:
 		if ( !is_null( $linker ) && ( $this->m_outformat != '-' ) ) {
 			$this->getTitle();
 		}
+
 		if ( !$this->isValid() ) {
 			return $this->getErrorText();
 		}
@@ -281,10 +359,14 @@ class SMWWikiPageValue extends SMWDataValue {
 		} elseif ( $this->getNamespace() == NS_MEDIA ) { // this extra case is really needed
 			return $linker->makeMediaLinkObj( $this->getTitle(),
 				htmlspecialchars( $this->getLongCaptionText() ) );
-		} else { // all others use default linking, no embedding of images here
-			return $linker->link( $this->getTitle(),
-				htmlspecialchars( $this->getLongCaptionText() ) );
 		}
+
+		// all others use default linking, no embedding of images here
+		return $linker->link(
+			$this->getTitle(),
+			htmlspecialchars( $this->getLongCaptionText() ),
+			$this->linkAttributes
+		);
 	}
 
 	/**
@@ -424,6 +506,28 @@ class SMWWikiPageValue extends SMWDataValue {
 	}
 
 	/**
+	 * DataValue::getPreferredCaption
+	 *
+	 * @since 2.4
+	 *
+	 * @return string
+	 */
+	public function getPreferredCaption() {
+
+		if ( ( $preferredCaption = parent::getPreferredCaption() ) !== '' && $preferredCaption !== false ) {
+			return $preferredCaption;
+		}
+
+		$preferredCaption = $this->getDisplayTitle();
+
+		if ( $preferredCaption === '' ) {
+			$preferredCaption = $this->getText();
+		}
+
+		return $preferredCaption;
+	}
+
+	/**
 	 * Get a short caption used to label this value. In particular, this
 	 * omits namespace and interwiki prefixes (similar to the MediaWiki
 	 * "pipe trick"). Fragments are included unless they start with an
@@ -439,7 +543,14 @@ class SMWWikiPageValue extends SMWDataValue {
 		} else {
 			$fragmentText = '';
 		}
-		return $this->getText() . $fragmentText;
+
+		$displayTitle = $this->getDisplayTitle();
+
+		if ( $displayTitle === '' ) {
+			$displayTitle = $this->getText();
+		}
+
+		return $displayTitle . $fragmentText;
 	}
 
 	/**
@@ -458,7 +569,14 @@ class SMWWikiPageValue extends SMWDataValue {
 		} else {
 			$fragmentText = '';
 		}
-		return ( $this->m_fixNamespace == NS_MAIN ? $this->getPrefixedText() : $this->getText() ) . $fragmentText;
+
+		$displayTitle = $this->getDisplayTitle();
+
+		if ( $displayTitle === '' ) {
+			$displayTitle = $this->m_fixNamespace == NS_MAIN ? $this->getPrefixedText() : $this->getText();
+		}
+
+		return $displayTitle . $fragmentText;
 	}
 
 	/**
@@ -482,7 +600,21 @@ class SMWWikiPageValue extends SMWDataValue {
 	 * @return string sortkey
 	 */
 	public function getSortKey() {
-		return \SMW\StoreFactory::getStore()->getWikiPageSortKey( $this->m_dataitem );
+		return ApplicationFactory::getInstance()->getStore()->getWikiPageSortKey( $this->m_dataitem );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return string
+	 */
+	public function getDisplayTitle() {
+
+		if ( $this->m_dataitem === null || !$this->isEnabledFeature( SMW_DV_WPV_DTITLE ) ) {
+			return '';
+		}
+
+		return $this->findDisplayTitleFor( $this->m_dataitem );
 	}
 
 	/**
@@ -521,11 +653,23 @@ class SMWWikiPageValue extends SMWDataValue {
 		return $dvWikiPage;
 	}
 
-}
+	private function findDisplayTitleFor( $subject ) {
 
-/**
- * SMW\WikiPageValue
- *
- * @since 1.9
- */
-class_alias( 'SMWWikiPageValue', 'SMW\WikiPageValue' );
+		$displayTitle = '';
+
+		$dataItems = ApplicationFactory::getInstance()->getCachedPropertyValuesPrefetcher()->getPropertyValues(
+			$subject,
+			new DIProperty( '_DTITLE' )
+		);
+
+		if ( $dataItems !== null && $dataItems !== array() ) {
+			$displayTitle = end( $dataItems )->getString();
+		} elseif ( $subject->getSubobjectName() !== '' ) {
+			// Check whether the base subject has a DISPLAYTITLE
+			return $this->findDisplayTitleFor( $subject->asBase() );
+		}
+
+		return $displayTitle;
+	}
+
+}

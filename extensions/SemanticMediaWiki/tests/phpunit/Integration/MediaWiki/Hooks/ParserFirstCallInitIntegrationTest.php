@@ -2,20 +2,13 @@
 
 namespace SMW\Tests\Integration\MediaWiki\Hooks;
 
-use SMW\Tests\Utils\UtilityFactory;
-
 use SMW\ApplicationFactory;
 use SMW\ContentParser;
-
+use SMW\Tests\Utils\UtilityFactory;
 use Title;
 
 /**
- * @group SMW
- * @group SMWExtension
- *
- * @group semantic-mediawiki-integration
- * @group mediawiki-databaseless
- *
+ * @group semantic-mediawiki
  * @group medium
  *
  * @license GNU GPL v2+
@@ -50,7 +43,7 @@ class ParserFirstCallInitIntegrationTest extends \PHPUnit_Framework_TestCase {
 
 		$this->mwHooksHandler->register(
 			'ParserFirstCallInit',
-			$this->mwHooksHandler->getHookRegistry()->getDefinition( 'ParserFirstCallInit' )
+			$this->mwHooksHandler->getHookRegistry()->getHandlerFor( 'ParserFirstCallInit' )
 		);
 	}
 

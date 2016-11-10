@@ -1,11 +1,12 @@
 <?php
 
-use SMW\MediaWiki\Jobs\UpdateJob;
-use SMW\MediaWiki\Jobs\JobBase;
-
-use SMW\SQLStore\PropertyStatisticsTable;
-use SMW\SemanticData;
+use SMW\ApplicationFactory;
 use SMW\DIWikiPage;
+use SMW\MediaWiki\Jobs\JobBase;
+use SMW\MediaWiki\Jobs\UpdateJob;
+use SMW\SemanticData;
+use SMW\SQLStore\PropertyStatisticsTable;
+use SMW\SQLStore\PropertyTableRowDiffer;
 
 /**
  * Class Handling all the write and update methods for SMWSQLStore3.
@@ -32,6 +33,11 @@ class SMWSQLStore3Writers {
 	protected $store;
 
 	/**
+	 * @var PropertyTableRowDiffer|null
+	 */
+	private $propertyTableRowDiffer = null;
+
+	/**
 	 * Constructor.
 	 *
 	 * @since 1.8
@@ -39,8 +45,8 @@ class SMWSQLStore3Writers {
 	 */
 	public function __construct( SMWSQLStore3 $parentStore ) {
 		$this->store = $parentStore;
+		$this->propertyTableRowDiffer = new PropertyTableRowDiffer( $this->store );
 	}
-
 
 	/**
 	 * @see SMWStore::deleteSubject
@@ -51,26 +57,44 @@ class SMWSQLStore3Writers {
 	public function deleteSubject( Title $title ) {
 
 		// @deprecated since 2.1, use 'SMW::SQLStore::BeforeDeleteSubjectComplete'
-		wfRunHooks( 'SMWSQLStore3::deleteSubjectBefore', array( $this->store, $title ) );
+		\Hooks::run( 'SMWSQLStore3::deleteSubjectBefore', array( $this->store, $title ) );
 
-		wfRunHooks( 'SMW::SQLStore::BeforeDeleteSubjectComplete', array( $this->store, $title ) );
+		\Hooks::run( 'SMW::SQLStore::BeforeDeleteSubjectComplete', array( $this->store, $title ) );
 
-		$emptySemanticData = new SemanticData( DIWikiPage::newFromTitle( $title ) );
+		// Fetch all possible matches (including any duplicates created by
+		// incomplete rollback or DB deadlock)
+		$ids = $this->store->getObjectIds()->getListOfIdMatchesFor(
+			$title->getDBkey(),
+			$title->getNamespace(),
+			$title->getInterwiki()
+		);
+
+		$subject = DIWikiPage::newFromTitle( $title );
+		$emptySemanticData = new SemanticData( $subject );
+
+		$subobjects = $this->getSubobjects(
+			$emptySemanticData->getSubject()
+		);
+
 		$this->doDataUpdate( $emptySemanticData );
 
-		if ( $title->getNamespace() === SMW_NS_CONCEPT ) { // make sure to clear caches
+		foreach ( $ids as $id ) {
+			$this->doDeleteFor( $id, $subject, $subobjects );
+		}
+
+		// @deprecated since 2.1, use 'SMW::SQLStore::AfterDeleteSubjectComplete'
+		\Hooks::run( 'SMWSQLStore3::deleteSubjectAfter', array( $this->store, $title ) );
+
+		\Hooks::run( 'SMW::SQLStore::AfterDeleteSubjectComplete', array( $this->store, $title ) );
+	}
+
+	private function doDeleteFor( $id, $subject, $subobjects ) {
+
+		if ( $subject->getNamespace() === SMW_NS_CONCEPT ) { // make sure to clear caches
 			$db = $this->store->getConnection();
 
-			$id = $this->store->getObjectIds()->getSMWPageID(
-				$title->getDBkey(),
-				$title->getNamespace(),
-				$title->getInterwiki(),
-				'',
-				false
-			);
-
 			$db->delete(
-				'smw_fpt_conc',
+				SMWSQLStore3::CONCEPT_TABLE,
 				array( 's_id' => $id ),
 				'SMW::deleteSubject::Conc'
 			);
@@ -82,16 +106,21 @@ class SMWSQLStore3Writers {
 			);
 		}
 
-		// 1.9.0.1
-		// The update of possible associative entities is handled by DeleteSubjectJob which is invoked during
-		// the ArticleDelete hook
+		// Mark subject/subobjects with a special IW, the final removal is being
+		// triggered by the `ByIdDataRebuildDispatcher`
+		$this->store->getObjectIds()->updateInterwikiField(
+			$id,
+			$subject,
+			SMW_SQL3_SMWDELETEIW
+		);
 
-		///TODO: Possibly delete ID here (at least for non-properties/categories, if not used in any place in rels2)
-
-		// @deprecated since 2.1, use 'SMW::SQLStore::AfterDeleteSubjectComplete'
-		wfRunHooks( 'SMWSQLStore3::deleteSubjectAfter', array( $this->store, $title ) );
-
-		wfRunHooks( 'SMW::SQLStore::AfterDeleteSubjectComplete', array( $this->store, $title ) );
+		foreach( $subobjects as $smw_id => $subobject ) {
+			$this->store->getObjectIds()->updateInterwikiField(
+				$smw_id,
+				$subobject,
+				SMW_SQL3_SMWDELETEIW
+			);
+		}
 	}
 
 	/**
@@ -101,14 +130,13 @@ class SMWSQLStore3Writers {
 	 * @param SMWSemanticData $data
 	 */
 	public function doDataUpdate( SMWSemanticData $semanticData ) {
-		wfRunHooks( 'SMWSQLStore3::updateDataBefore', array( $this->store, $semanticData ) );
+		\Hooks::run( 'SMWSQLStore3::updateDataBefore', array( $this->store, $semanticData ) );
 
 		$subject = $semanticData->getSubject();
 
-		// Clearing all data associated with a subject before adding the new data set
-		if ( $this->store->canUseUpdateFeature( SMW_REPLACEMENT_UPDATE ) && !$this->store->getObjectIds()->checkIsRedirect( $subject ) ) {
-			$this->doFlatDataUpdate( new SMWSemanticData( $subject ) );
-		}
+
+		// Reset diff before starting the update
+		$this->propertyTableRowDiffer->resetCompositePropertyTableDiff();
 
 		// Update data about our main subject
 		$this->doFlatDataUpdate( $semanticData );
@@ -124,16 +152,25 @@ class SMWSQLStore3Writers {
 		$subobjects = $this->getSubobjects( $subject );
 
 		foreach( $subobjects as $smw_id => $subobject ) {
-			if( !array_key_exists( $subobject->getSubobjectName(), $subSemanticData ) ) {
+			if( !$semanticData->hasSubSemanticData( $subobject->getSubobjectName() ) ) {
 				$this->doFlatDataUpdate( new SMWSemanticData( $subobject ) );
-				//TODO make delete job to find out if IDs can be deleted altogether
+
+				$this->store->getObjectIds()->updateInterwikiField(
+					$smw_id,
+					$subobject,
+					SMW_SQL3_SMWDELETEIW
+				);
 			}
 		}
 
-		// TODO Make overall diff SMWSemanticData containers and run a hook
+		// Deprecated since 2.3, use SMW::SQLStore::AfterDataUpdateComplete
+		\Hooks::run( 'SMWSQLStore3::updateDataAfter', array( $this->store, $semanticData ) );
 
-		wfRunHooks( 'SMWSQLStore3::updateDataAfter', array( $this->store, $semanticData ) );
-
+		\Hooks::run( 'SMW::SQLStore::AfterDataUpdateComplete', array(
+			$this->store,
+			$semanticData,
+			$this->propertyTableRowDiffer->getCompositePropertyTableDiff()
+		) );
 	}
 
 	/**
@@ -146,12 +183,10 @@ class SMWSQLStore3Writers {
 	protected function doFlatDataUpdate( SMWSemanticData $data ) {
 		$subject = $data->getSubject();
 
-		if ( $this->store->canUseUpdateFeature( SMW_TRX_UPDATE ) ) {
-			$this->store->getConnection()->beginTransaction( __METHOD__ );
-		}
+		$this->store->getConnection()->beginAtomicTransaction( __METHOD__ );
 
 		// Take care of redirects
-		$redirects = $data->getPropertyValues( new SMWDIProperty( '_REDI' ) );
+		$redirects = $data->getPropertyValues( new SMW\DIProperty( '_REDI' ) );
 
 		if ( count( $redirects ) > 0 ) {
 			$redirect = end( $redirects ); // at most one redirect per page
@@ -165,7 +200,7 @@ class SMWSQLStore3Writers {
 			// * no support for annotations on redirect pages
 			// * updateRedirects takes care of deleting any previous data
 
-			$this->store->getConnection()->commitTransaction( __METHOD__ );
+			$this->store->getConnection()->endAtomicTransaction( __METHOD__ );
 
 			return;
 		} else {
@@ -176,7 +211,7 @@ class SMWSQLStore3Writers {
 		}
 
 		// Take care of the sortkey
-		$sortkeyDataItems = $data->getPropertyValues( new SMWDIProperty( '_SKEY' ) );
+		$sortkeyDataItems = $data->getPropertyValues( new SMW\DIProperty( '_SKEY' ) );
 		$sortkeyDataItem = end( $sortkeyDataItems );
 
 		if ( $sortkeyDataItem instanceof SMWDIBlob ) {
@@ -201,7 +236,10 @@ class SMWSQLStore3Writers {
 		);
 
 		// Take care of all remaining property table data
-		list( $deleteRows, $insertRows, $newHashes ) = $this->preparePropertyTableUpdates( $sid, $data );
+		list( $deleteRows, $insertRows, $newHashes ) = $this->propertyTableRowDiffer->computeTableRowDiffFor(
+			$sid,
+			$data
+		);
 
 		$this->writePropertyTableUpdates(
 			$sid,
@@ -224,7 +262,7 @@ class SMWSQLStore3Writers {
 		// Update caches (may be important if jobs are directly following this call)
 		$this->setSemanticDataCache( $sid, $data );
 
-		$this->store->getConnection()->commitTransaction( __METHOD__ );
+		$this->store->getConnection()->endAtomicTransaction( __METHOD__ );
 
 		// TODO Make overall diff SMWSemanticData containers and return them.
 		// This can only be done here, since the $deleteRows/$insertRows
@@ -245,7 +283,7 @@ class SMWSQLStore3Writers {
 		$db = $this->store->getConnection();
 
 		$res = $db->select(
-			$db->tablename( SMWSql3SmwIds::tableName ),
+			$db->tablename( SMWSql3SmwIds::TABLE_NAME ),
 			'smw_id,smw_subobject,smw_sortkey',
 			'smw_title = ' . $db->addQuotes( $subject->getDBkey() ) . ' AND ' .
 			'smw_namespace = ' . $db->addQuotes( $subject->getNamespace() ) . ' AND ' .
@@ -273,119 +311,6 @@ class SMWSQLStore3Writers {
 	}
 
 	/**
-	 * Create an array of rows to insert into property tables in order to
-	 * store the given SMWSemanticData. The given $sid (subject page id) is
-	 * used directly and must belong to the subject of the data container.
-	 * Sortkeys are ignored since they are not stored in a property table
-	 * but in the ID table.
-	 *
-	 * The returned array uses property table names as keys and arrays of
-	 * table rows as values. Each table row is an array mapping column
-	 * names to values.
-	 *
-	 * @note Property tables that do not use ids as subjects are ignored.
-	 * This just excludes redirects that are handled differently anyway;
-	 * it would not make a difference to include them here.
-	 *
-	 * @since 1.8
-	 * @param integer $sid
-	 * @param SMWSemanticData $data
-	 * @return array
-	 */
-	protected function preparePropertyTableInserts( $sid, SMWSemanticData $data ) {
-		$updates = array();
-
-		$subject = $data->getSubject();
-		$propertyTables = $this->store->getPropertyTables();
-
-		foreach ( $data->getProperties() as $property ) {
-
-			$tableId = $this->store->findPropertyTableID( $property );
-			if ( is_null( $tableId ) ) { // not stored in a property table, e.g., sortkeys
-				continue;
-			}
-
-			$propertyTable = $propertyTables[$tableId];
-			if ( !$propertyTable->usesIdSubject() ) { // not using subject ids, e.g., redirects
-				continue;
-			}
-
-			$insertValues = array( 's_id' => $sid );
-			if ( !$propertyTable->isFixedPropertyTable() ) {
-				$insertValues['p_id'] = $this->store->smwIds->makeSMWPropertyID( $property );
-			}
-
-			foreach ( $data->getPropertyValues( $property ) as $di ) {
-				if ( $di instanceof SMWDIError ) { // ignore error values
-					continue;
-				}
-				if ( !array_key_exists( $propertyTable->getName(), $updates ) ) {
-					$updates[$propertyTable->getName()] = array();
-				}
-
-				$diHandler = $this->store->getDataItemHandlerForDIType( $di->getDIType() );
-				// Note that array_merge creates a new array; not overwriting past entries here
-				$insertValues = array_merge( $insertValues, $diHandler->getInsertValues( $di ) );
-				$updates[$propertyTable->getName()][] = $insertValues;
-			}
-		}
-
-		// Special handling of Concepts
-		if ( $subject->getNamespace() === SMW_NS_CONCEPT && $subject->getSubobjectName() == '' ) {
-			$this->prepareConceptTableInserts( $sid, $updates );
-		}
-
-		return $updates;
-	}
-
-	/**
-	 * Add cache information to concept data and make sure that there is
-	 * exactly one value for the concept table.
-	 *
-	 * @note This code will vanish when concepts have a more standard
-	 * handling. So not point in optimizing this much now.
-	 *
-	 * @since 1.8
-	 * @param integer $sid
-	 * @param &array $insertData
-	 */
-	private function prepareConceptTableInserts( $sid, &$insertData ) {
-
-		$db = $this->store->getConnection();
-
-		// Make sure that there is exactly one row to be written:
-		if ( array_key_exists( 'smw_fpt_conc', $insertData ) && !empty( $insertData['smw_fpt_conc'] ) ) {
-			$insertValues = end( $insertData['smw_fpt_conc'] );
-		} else {
-			$insertValues = array(
-				's_id'          => $sid,
-				'concept_txt'   => '',
-				'concept_docu'  => '',
-				'concept_features' => 0,
-				'concept_size'  => -1,
-				'concept_depth' => -1
-			);
-		}
-
-		// Add existing cache status data to this row:
-		$row = $db->selectRow(
-			'smw_fpt_conc',
-			array( 'cache_date', 'cache_count' ),
-			array( 's_id' => $sid ),
-			'SMWSQLStoreQueries::updateConcData'
-		);
-		if ( $row === false ) {
-			$insertValues['cache_date'] = null;
-			$insertValues['cache_count'] = null;
-		} else {
-			$insertValues['cache_date'] = $row->cache_date;
-			$insertValues['cache_count'] = $row->cache_count;
-		}
-
-		$insertData['smw_fpt_conc'] = array( $insertValues );
-	}
-
-	/**
 	 * Create a string key for hashing an array of values that represents a
 	 * row in the database. Used to eliminate duplicates and to support
 	 * diff computation. This is not stored in the database, so it can be
@@ -403,139 +328,6 @@ class SMWSQLStore3Writers {
 			$keyString .= "#$column##$value#";
 		}
 		return md5( $keyString );
-	}
-
-	/**
-	 * Delete all matching values from old and new arrays and return the
-	 * remaining new values as insert values and the remaining old values as
-	 * delete values.
-	 *
-	 * @param array $oldValues
-	 * @param array $newValues
-	 * @return array
-	 */
-	protected function arrayDeleteMatchingValues( $oldValues, $newValues ) {
-
-		// cycle through old values
-		foreach ( $oldValues as $oldKey => $oldValue ) {
-
-			// cycle through new values
-			foreach ( $newValues as $newKey => $newValue ) {
-				// delete matching values;
-				// use of == is intentional to account for oldValues only
-				// containing strings while new values might also contain other
-				// types
-				if ( $newValue == $oldValue ) {
-					unset( $newValues[$newKey] );
-					unset( $oldValues[$oldKey] );
-				}
-			}
-		};
-
-		// arrays have to be renumbered because database functions expect an
-		// element with index 0 to be present in the array
-		return array( array_values( $newValues ), array_values( $oldValues ) );
-	}
-
-	/**
-	 * Compute necessary insertions, deletions, and new table hashes for
-	 * updating the database to contain $newData for the subject with ID
-	 * $sid. Insertions and deletions are returned in as an array mapping
-	 * table names to arrays of table rows. Each row is an array mapping
-	 * column names to values as usual. The table hashes are returned as
-	 * an array mapping table names to hash values.
-	 *
-	 * It is ensured that the table names (keys) in the returned insert
-	 * data are exaclty the same as the table names (keys) in the delete
-	 * data, even if one of them maps to an empty array (no changes). If
-	 * a table needs neither insertions nor deletions, then it will not
-	 * be mentioned as a key anywhere.
-	 *
-	 * The given database is only needed for reading the data that is
-	 * currently stored about $sid.
-	 *
-	 * @since 1.8
-	 * @param integer $sid
-	 * @param SMWSemanticData $data
-	 * @return array( array, array, array )
-	 */
-	protected function preparePropertyTableUpdates( $sid, SMWSemanticData $data ) {
-		$tablesDeleteRows = array();
-		$tablesInsertRows = array();
-
-		$oldHashes = $this->store->getObjectIds()->getPropertyTableHashes( $sid );
-		$newHashes = array();
-
-		$newData = $this->preparePropertyTableInserts( $sid, $data );
-		$propertyTables = $this->store->getPropertyTables();
-
-		foreach ( $propertyTables as $propertyTable ) {
-			if ( !$propertyTable->usesIdSubject() ) { // ignore; only affects redirects anyway
-				continue;
-			}
-
-			$tableName = $propertyTable->getName();
-
-			if ( array_key_exists( $tableName, $newData ) ) {
-				// Note: the order within arrays should remain the same while page is not updated.
-				// Hence we do not sort before serializing. It is hoped that this assumption is valid.
-				$newHash = md5( serialize( array_values( $newData[$tableName] ) ) );
-				$newHashes[$tableName] = $newHash;
-
-				if ( array_key_exists( $tableName, $oldHashes ) && $newHash == $oldHashes[$tableName] ) {
-					// Table contains data and should contain the same data after update
-					continue;
-				} else { // Table contains no data or contains data that is different from the new
-					$oldTableData = $this->getCurrentPropertyTableContents( $sid, $propertyTable );
-
-					list( $tablesInsertRows[$tableName], $tablesDeleteRows[$tableName]) = $this->arrayDeleteMatchingValues( $oldTableData, $newData[$tableName] );
-				}
-			} elseif ( array_key_exists( $tableName, $oldHashes ) ) {
-				// Table contains data but should not contain any after update
-				$tablesInsertRows[$tableName] = array();
-				$tablesDeleteRows[$tableName] = $this->getCurrentPropertyTableContents( $sid, $propertyTable );
-			}
-		}
-
-		return array( $tablesInsertRows, $tablesDeleteRows, $newHashes );
-	}
-
-	/**
-	 * Get the current data stored for the given ID in the given database
-	 * table. The result is an array of updates, formatted like the one of
-	 * the table insertion arrays created by preparePropertyTableInserts().
-	 *
-	 * @note Tables without IDs as subject are not supported. They will
-	 * hopefully vanish soon anyway.
-	 *
-	 * @since 1.8
-	 * @param integer $sid
-	 * @param SMWSQLStore3Table $tableDeclaration
-	 * @return array
-	 */
-	protected function getCurrentPropertyTableContents( $sid, SMWSQLStore3Table $propertyTable ) {
-
-		if ( !$propertyTable->usesIdSubject() ) { // does not occur, but let's be strict
-			throw new InvalidArgumentException('Operation not supported for tables without subject IDs.');
-		}
-
-		$contents = array();
-		$db = $this->store->getConnection();
-
-		$result = $db->select(
-			$db->tablename( $propertyTable->getName() ),
-			'*',
-			array( 's_id' => $sid ),
-			__METHOD__
-		);
-
-		foreach( $result as $row ) {
-			if ( is_object( $row ) ) {
-				$contents[] = (array)$row;
-			}
-		}
-
-		return $contents;
 	}
 
 	/**
@@ -569,7 +361,16 @@ class SMWSQLStore3Writers {
 			$this->writePropertyTableRowUpdates( $propertyUseIncrements, $propertyTables[$tableName], $insertRows, true );
 		}
 
-		if ( !empty( $tablesInsertRows ) || !empty( $tablesDeleteRows ) ) {
+		// If only rows are marked for deletion then modify hashs to ensure that
+		// any inbalance can be corrected by the next insert operation for which
+		// the newHashes are computed (seen in connection with redirects)
+		if ( $tablesInsertRows === array() && $tablesDeleteRows !== array() ) {
+			foreach ( $newHashes as $key => $hash ) {
+				$newHashes[$key] = $hash . '.d';
+			}
+		}
+
+		if ( $tablesInsertRows !== array() || $tablesDeleteRows !== array() ) {
 			$this->store->smwIds->setPropertyTableHashes( $sid, $newHashes );
 		}
 
@@ -622,7 +423,7 @@ class SMWSQLStore3Writers {
 		}
 
 		if ( $propertyTable->isFixedPropertyTable() ) {
-			$property = new SMWDIProperty( $propertyTable->getFixedProperty() );
+			$property = new SMW\DIProperty( $propertyTable->getFixedProperty() );
 			$pid = $this->store->getObjectIds()->makeSMWPropertyID( $property );
 		}
 
@@ -728,7 +529,7 @@ class SMWSQLStore3Writers {
 	public function changeTitle( Title $oldTitle, Title $newTitle, $pageId, $redirectId = 0 ) {
 		global $smwgQEqualitySupport;
 
-		wfRunHooks(
+		\Hooks::run(
 			'SMW::SQLStore::BeforeChangeTitleComplete',
 			array( $this->store, $oldTitle, $newTitle, $pageId, $redirectId )
 		);
@@ -761,7 +562,7 @@ class SMWSQLStore3Writers {
 			if ( $sid != 0 ) { // change id entry to refer to the new title
 				// Note that this also changes the reference for internal objects (subobjects)
 				$db->update(
-					SMWSql3SmwIds::tableName,
+					SMWSql3SmwIds::TABLE_NAME,
 					array(
 						'smw_title' => $newTitle->getDBkey(),
 						'smw_namespace' => $newTitle->getNamespace(),
@@ -828,7 +629,7 @@ class SMWSQLStore3Writers {
 			);
 
 			$statsTable->addToUsageCount(
-				$this->store->getObjectIds()->getSMWPropertyID( new SMWDIProperty( '_REDI' ) ),
+				$this->store->getObjectIds()->getSMWPropertyID( new SMW\DIProperty( '_REDI' ) ),
 				1
 			);
 
@@ -859,7 +660,7 @@ class SMWSQLStore3Writers {
 			}
 
 			// Associate internal objects (subobjects) with the new title:
-			$table = $db->tableName( SMWSql3SmwIds::tableName );
+			$table = $db->tableName( SMWSql3SmwIds::TABLE_NAME );
 
 			$values = array(
 				'smw_title' => $newTitle->getDBkey(),
@@ -913,6 +714,7 @@ class SMWSQLStore3Writers {
 
 		}
 
+		$this->addToDeferredUpdate( $oldTitle, $newTitle, $redirectId );
 	}
 
 	/**
@@ -946,7 +748,7 @@ class SMWSQLStore3Writers {
 	 * @return integer the new canonical ID of the subject
 	 */
 	protected function updateRedirects( $subject_t, $subject_ns, $curtarget_t = '', $curtarget_ns = -1 ) {
-		global $smwgQEqualitySupport, $smwgEnableUpdateJobs;
+		global $smwgQEqualitySupport;
 
 		$count = 0; //track count changes for redi property
 		$db = $this->store->getConnection();
@@ -994,13 +796,6 @@ class SMWSQLStore3Writers {
 				true
 			);
 
-			$jobs = $this->makeUpdateJobsForNewRedirect(
-				$subject_t,
-				$subject_ns,
-				$curtarget_t,
-				$curtarget_ns
-			);
-
 		} elseif ( $old_tid != 0 ) { // existing redirect is changed or deleted
 
 			$this->store->getObjectIds()->deleteRedirectEntry(
@@ -1022,7 +817,7 @@ class SMWSQLStore3Writers {
 
 					if ( $proptable->usesIdSubject() ) {
 						$from   = $db->tableName( $proptable->getName() ) . ' INNER JOIN ' .
-							  $db->tableName( SMWSql3SmwIds::tableName ) . ' ON s_id=smw_id';
+							  $db->tableName( SMWSql3SmwIds::TABLE_NAME ) . ' ON s_id=smw_id';
 						$select = 'DISTINCT smw_title AS t,smw_namespace AS ns';
 					} else {
 						$from   = $db->tableName( $proptable->getName() );
@@ -1101,7 +896,7 @@ class SMWSQLStore3Writers {
 					);
 				} else {
 					$db->update(
-						SMWSql3SmwIds::tableName,
+						SMWSql3SmwIds::TABLE_NAME,
 						array( 'smw_iw' => SMW_SQL3_SMWREDIIW ),
 						array( 'smw_id' => $sid ),
 						__METHOD__
@@ -1142,7 +937,7 @@ class SMWSQLStore3Writers {
 			if ( $smwgQEqualitySupport != SMW_EQ_NONE ) { // mark subject as non-redirect
 
 				$db->update(
-					SMWSql3SmwIds::tableName,
+					SMWSql3SmwIds::TABLE_NAME,
 					array( 'smw_iw' => '' ),
 					array( 'smw_id' => $sid ),
 					__METHOD__
@@ -1184,26 +979,38 @@ class SMWSQLStore3Writers {
 		);
 
 		$statsTable->addToUsageCount(
-			$this->store->getObjectIds()->getSMWPropertyID( new SMWDIProperty( '_REDI' ) ),
+			$this->store->getObjectIds()->getSMWPropertyID( new SMW\DIProperty( '_REDI' ) ),
 			$count
 		);
 
 		return ( $new_tid == 0 ) ? $sid : $new_tid;
 	}
 
-	private function makeUpdateJobsForNewRedirect( $subjectDBKey, $subjectNS, $targetDBKey, $targetNS ) {
+	private function addToDeferredUpdate( $oldTitle, $newTitle, $redirectId ) {
 
-		$jobs = array();
+		$jobFactory = ApplicationFactory::getInstance()->newJobFactory();
 
-		$title = Title::makeTitleSafe( $subjectNS, $subjectDBKey );
-		$jobs[] = new UpdateJob( $title );
+		if ( $redirectId != 0 ) {
+			$title = $oldTitle;
+			$deferredCallableUpdate = ApplicationFactory::getInstance()->newDeferredCallableUpdate( function() use( $title, $jobFactory ) {
 
-		if ( $targetDBKey !== '' && $targetNS !== -1 ) {
-			$title = Title::makeTitleSafe( $targetNS, $targetDBKey );
-			$jobs[] = new UpdateJob( $title );
+				wfDebugLog( 'smw', 'DeferredCallableUpdate on changeTitle for ' . $title->getPrefixedDBKey() );
+
+				$jobFactory->newUpdateJob( $title )->run();
+			} );
+
+			$deferredCallableUpdate->pushToDeferredUpdateList();
 		}
 
-		return $jobs;
+		$title = $newTitle;
+		$deferredCallableUpdate = ApplicationFactory::getInstance()->newDeferredCallableUpdate( function() use( $title, $jobFactory ) {
+
+			wfDebugLog( 'smw', 'DeferredCallableUpdate on changeTitle for ' . $title->getPrefixedDBKey() );
+
+			$jobFactory->newUpdateJob( $title )->run();
+		} );
+
+		$deferredCallableUpdate->pushToDeferredUpdateList();
 	}
 
 }

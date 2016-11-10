@@ -3,9 +3,9 @@
 namespace SMW\MediaWiki\Hooks;
 
 use LinksUpdate;
-use Title;
 use SMW\ApplicationFactory;
 use SMW\SemanticData;
+use Title;
 
 /**
  * LinksUpdateConstructed hook is called at the end of LinksUpdate()
@@ -30,12 +30,24 @@ class LinksUpdateConstructed {
 	private $applicationFactory = null;
 
 	/**
+	 * @var boolean
+	 */
+	private $enabledDeferredUpdate = true;
+
+	/**
 	 * @since  1.9
 	 *
 	 * @param LinksUpdate $linksUpdate
 	 */
 	public function __construct( LinksUpdate $linksUpdate ) {
 		$this->linksUpdate = $linksUpdate;
+	}
+
+	/**
+	 * @since 2.4
+	 */
+	public function disableDeferredUpdate() {
+		$this->enabledDeferredUpdate = false;
 	}
 
 	/**
@@ -59,7 +71,9 @@ class LinksUpdateConstructed {
 			$this->updateEmptySemanticData( $parserData, $title );
 		}
 
-		$parserData->updateStore();
+		$parserData->updateStore(
+			$this->enabledDeferredUpdate
+		);
 
 		return true;
 	}

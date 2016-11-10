@@ -9,22 +9,43 @@ If you want to run some manual tests (either as scripted or exploratory test pro
 
 # Automated testing (PHPUnit)
 
-For the automated approach, Semantic MediaWiki relies on [PHPUnit][phpunit] as scripted testing methodology. Scripted tests are used to verify that an expected behaviour occurs for specified requirements whether a result can be accepted or has to be rejected for the codified boundaries.
+For the automated approach, Semantic MediaWiki relies on [PHPUnit][phpunit] as scripted testing methodology. Scripted tests are used to verify that an expected behaviour occurs for codified requirements on whether a result can be accepted or has to be rejected for the given conditions.
 
-- Unit test in most cases refers to a test that tests an expected result for a unit, module, or class
-- Integration test normally combines multiple components into a single process to verify that an expected result is produced
-- System test (and its individual modules) is treated as "black-box" in order to observe behaviour as a whole rather than its units
+- Unit test refers to a script that verifies results for a unit, module, or class against an expected outcome in an isolated environment
+- Integration test (functional test) normally combines multiple components into a single process to verify results in a production like environment (DB access, sample data etc.)
+- System test (and its individual modules) is treated as "black-box" to observe behaviour as a whole rather than its units
 
 ## Running tests
 
-1. Verify that PHUnit is installed and in case it is not use `composer require phpunit/phpunit:~4.3` to add the package
-2. Use `composer phpunit` from the extension base directory, or [`phpunit`][mw-phpunit-testing] directly in connection with the PHPUnit `XML` configuration file (together with MediaWiki's `phpunit.php` loader otherwise required MediaWiki classes are not loaded).
+1. Verify that PHUnit is installed and in case it is not use `composer require phpunit/phpunit:~4.7 --update-with-dependencies` to add the package
+2. Verify that your MediaWiki installation comes with its test files and folders (e.g. `/myMediawikiFolder/tests` ) in order for Semantic MediaWiki to have access to registered MW-core classes. If the `tests` folder is missing, you may download it from a matched [release source](https://github.com/wikimedia/mediawiki/releases).
+3. Run `composer phpunit` from the Semantic MediaWiki base directory (e.g. `/extensions/SemanticMediaWiki`) using a standard command line tool which should output something like:
+
+<pre>
+$ composer phpunit
+> php ../../tests/phpunit/phpunit.php -c phpunit.xml.dist
+
+Semantic MediaWiki: 2.4-alpha (SMWSparqlStore, mysql, sesame)
+MediaWiki:          1.25.4 (MediaWiki vendor autoloader)
+
+Execution date:     2015-01-01 01:00
+
+PHPUnit 4.7.7 by Sebastian Bergmann and contributors.
+
+Runtime:        PHP 5.6.8
+Configuration:  .../extensions/SemanticMediaWiki/phpunit.xml.dist
+
+............................................................   60 / 3328 (  1%)
+............................................................  120 / 3328 (  3%)
+</pre>
 
 Information about PHPUnit in connection with MediaWiki can be found at [smw.org][smw] and [mediawiki.org][mw-phpunit-testing].
 
 ## Writing tests
 
 Writing meaningful tests isn't easy nor is it complicated but it requires some diligence on how to setup a test and its environment. One simple rule is to avoid to use of hidden expectations or inheritance as remedy for the "less code is good code" aesthetics. Allow the code to be readable and if possible follow the [arrange, act, assert][aaa] pattern and yet again __"Avoid doing magic"__.
+
+For a short introduction on "How to write a test for Semantic MediaWiki", have a look at the [video](https://www.youtube.com/watch?v=v6JRfk5ZmsI).
 
 ### Test cases
 
@@ -33,35 +54,26 @@ The use of `MediaWikiTestCase` is discouraged as its binds tests and the test en
 * `QueryPrinterTestCase` base class for all query and result printers
 * `SpecialPageTestCase` derives from `SemanticMediaWikiTestCase`
 
-### Test fixtures
-
-When writing tests, it is suggested to use available [immutable fixtures][phpunit-fixtures] as baseline to create repeatable object instances during a test. Available fixtures can be found in `SMW\Tests\Utils\Fixtures\*`.
-
-Another possibility is to use MediaWiki's XML format to import fixtures (in form of content pages), for more details see `SMW\Tests\Integration\MediaWiki\Import\*`.
-
 ## Integration tests
 
-Integration tests are vital to confirm expected behaviour of a component from an integrative perspective that occurs through the interplay with its surroundings. `SMW\Tests\Integration\` contains most of the tests that target the validation of reciprocity with MediaWiki together with listed services such as:
+Integration tests are vital to confirm expected behaviour of a component from an integrative perspective that occurs through the interplay with its surroundings. `SMW\Tests\Integration\` contains most of the tests that target the validation of reciprocity with MediaWiki and/or other services such as:
 
-- `SPARQLStore` ( `fuseki`, `virtuoso`, or `4store` )
-- Other extensions that require SMW ( `SM`, `SESP`, `SBL` etc.)
+- `SPARQLStore` ( `fuseki`, `virtuoso`, `blazegraph`, or `sesame` )
+- Extensions such as `SM`, `SESP`, `SBL` etc.
 
-For details about the test environment see [integration testing](../includes/build/travis/README.md).
+Some details about the integration test environment can be found [here](https://github.com/SemanticMediaWiki/SemanticMediaWiki/blob/master/tests/travis/README.md).
 
 ### Write integration tests using `json` script
 
-Integration tests can be written in a pseudo `json` script in connection with a `TestCaseRunner` that handles the necessary object setup and tear down process for each test execution. The script was introduced to increase the understanding of what is being tested by using a script close to the wikitext notation (internally PHPUnit is used by the `ByJsonTestCaseProvider` to run/provide the actually test).
+Integration tests can be written in a pseudo `json` script in combination with a specialized `TestCaseRunner` that handles the necessary object setup and tear down process for each test execution.
 
-A new test file (with different test cases) is automatically loaded and run by a `TestCaseRunner` as soon as it is placed in a location specified by the runner.
+The script like test definition was introduced to lower the barrier of understanding of what is being tested by using a wikitext notation (internally PHPUnit is used by the `ByJsonTestCaseProvider` to run/provide the actually test).
 
-Each `TestCaseRunner` contains a different interpretation of the `json` script to keep the format straightforward but still allows for individual test assertions. Currently the following `TestCaseRunner` are provided:
-
-- `ByJsonRdfTestCaseRunnerTest` for rdf output assertion
-- `ByJsonQueryTestCaseRunnerTest` to verify formats, queries, and concepts
-- `ByJsonParserTestCaseRunnerTest` to check for  parser and store specific data
+A new test file (with different test cases) is automatically added by a `TestCaseRunner` as soon as it is placed within the location expected by the runner.
 
 The section `properties` and `subjects` contain object entities that are planned to be used during the test which are specified by a name and a content (generally the page content in wikitext).
-```json
+
+<pre>
 "properties": [
 	{
 		"name": "Has description",
@@ -79,19 +91,35 @@ The section `properties` and `subjects` contain object entities that are planned
 		"contents": "[[Has description::Bar]]"
 	}
 ]
-```
+</pre>
 
-The test result assertion is done in a very simplified way but expressive enough for users to understand on what is being tested. For example, verifying that a result printer does output a certain string, one has to the define an expected output in terms of:
+The test result assertion is done in a very simplified way but expressive enough for users to understand the test objective and its expected results. For example, verifying that a result printer does output a certain string, one has to the define an expected output in terms of:
 
-```json
-"expected-output": {
-	"to-contain": [
-		"<table class=\"sortable wikitable smwtable\">"
-	]
+<pre>
+"format-testcases": [
+	{
+		"about": "#0 this case is expected to output ...",
+		"subject": "Example/Test/1",
+		"expected-output": {
+			"to-contain": [
+				"abc",
+				"123"
+			]
+		}
+	}
 }
-```
+</pre>
+
+Test case definitions are available using specialized assertion methods with:
+
+* `query-testcases`, `concept-testcases`, and `format-testcases`
+* `parser-testcases`
+* `rdf-testcases`
+* `special-testcases`
+
 It can happen that an output is mixed with message dependent content (which when changing the site/content language will make the test script fail) and therefore it is recommended to fix the settings the test is intended for to pass with something like:
-```json
+
+<pre>
 "settings": {
 	"wgContLang": "en",
 	"wgLang": "en",
@@ -100,9 +128,9 @@ It can happen that an output is mixed with message dependent content (which when
 		"SMW_NS_PROPERTY": true
 	}
 }
-```
+</pre>
 
-For other assertion options it is best to look at existing `json` test files (e.g [rdf-001.json](https://github.com/SemanticMediaWiki/SemanticMediaWiki/blob/master/tests/phpunit/Integration/Rdf/rdf-001.json) or [parser-001-restricted-property-use.json](https://github.com/SemanticMediaWiki/SemanticMediaWiki/blob/master/tests/phpunit/Integration/Parser/parser-001-restricted-property-use.json)).
+A complete list of available `json` test files can be found [here](https://github.com/SemanticMediaWiki/SemanticMediaWiki/tree/master/tests/phpunit/Integration/ByJsonScript/README.md).
 
 ## Benchmark tests
 

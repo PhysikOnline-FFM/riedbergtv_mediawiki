@@ -3,10 +3,10 @@
 namespace SMW;
 
 use ParamProcessor\ParamDefinition;
-use SMWDataValue;
-use SMWResultArray;
-use SMWQueryResult;
 use SMW\Query\PrintRequest;
+use SMWDataValue;
+use SMWQueryResult;
+use SMWResultArray;
 
 /**
  * Print query results in tables
@@ -70,9 +70,15 @@ class TableResultPrinter extends ResultPrinter {
 			}
 		}
 
+		$rowNumber = 0;
+
 		while ( $subject = $res->getNext() ) {
+			$rowNumber++;
 			$this->getRowForSubject( $subject, $outputMode, $columnClasses );
-			$this->htmlTableRenderer->addRow();
+
+			$this->htmlTableRenderer->addRow(
+				array( 'data-row-number' => $rowNumber )
+			);
 		}
 
 		// print further results footer
@@ -154,7 +160,7 @@ class TableResultPrinter extends ResultPrinter {
 			$alignment = trim( $resultArray->getPrintRequest()->getParameter( 'align' ) );
 
 			if ( in_array( $alignment, array( 'right', 'left', 'center' ) ) ) {
-				$attributes['style'] = "text-align:' . $alignment . ';";
+				$attributes['style'] = "text-align:$alignment;";
 			}
 			$attributes['class'] = $columnClass . ( $dataValueType !== '' ? ' smwtype' . $dataValueType : '' );
 
@@ -184,7 +190,7 @@ class TableResultPrinter extends ResultPrinter {
 
 		foreach ( $dataValues as $dv ) {
 			$value = $dv->getShortText( $outputMode, $this->getLinker( $isSubject ) );
-			$values[] = $value;
+			$values[] = $value === '' ? '&nbsp;' : $value;
 		}
 
 		return implode( $this->params['sep'], $values );

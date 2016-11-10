@@ -3,6 +3,7 @@
 namespace SMW\Tests;
 
 use SMW\DIProperty;
+use SMW\DIWikiPage;
 
 /**
  * @covers \SMW\DIProperty
@@ -43,20 +44,6 @@ class DIPropertyTest extends DataItemTest {
 		);
 	}
 
-	/**
-	 * @see DataItemTest::invalidConstructorArgsProvider
-	 *
-	 * @since 1.9
-	 *
-	 * @return array
-	 */
-	public function invalidConstructorArgsProvider() {
-		return array(
-			array( true ),
-			array( array() ),
-		);
-	}
-
 	public function testSetPropertyTypeIdOnUserDefinedProperty() {
 
 		$property = new DIProperty( 'SomeBlobProperty' );
@@ -87,6 +74,78 @@ class DIPropertyTest extends DataItemTest {
 
 		$this->setExpectedException( 'InvalidArgumentException' );
 		$property->setPropertyTypeId( '_txt' );
+	}
+
+	public function testCorrectInversePrefixForPredefinedProperty() {
+
+		$property = new DIProperty( '_SOBJ', true );
+
+		$this->assertTrue(
+			$property->isInverse()
+		);
+
+		$label = $property->getLabel();
+
+		$this->assertEquals(
+			'-',
+			$label{0}
+		);
+	}
+
+	public function testUseInterwikiPrefix() {
+
+		$property = new DIProperty( 'Foo' );
+		$property->setInterwiki( 'bar' );
+
+		$this->assertEquals(
+			new DIWikiPage( 'Foo', SMW_NS_PROPERTY, 'bar' ),
+			$property->getDiWikiPage()
+		);
+	}
+
+	public function testCreatePropertyFromLabelThatContainsInverseMarker() {
+
+		$property = DIProperty::newFromUserLabel( '-Foo' );
+		$property->setInterwiki( 'bar' );
+
+		$this->assertTrue(
+			$property->isInverse()
+		);
+
+		$this->assertEquals(
+			new DIWikiPage( 'Foo', SMW_NS_PROPERTY, 'bar' ),
+			$property->getDiWikiPage()
+		);
+	}
+
+	public function testCreatePropertyFromLabelThatContainsLanguageMarker() {
+
+		$property = DIProperty::newFromUserLabel( '-Foo@en' );
+		$property->setInterwiki( 'bar' );
+
+		$this->assertTrue(
+			$property->isInverse()
+		);
+
+		$this->assertEquals(
+			new DIWikiPage( 'Foo', SMW_NS_PROPERTY, 'bar' ),
+			$property->getDiWikiPage()
+		);
+	}
+
+	public function testCanonicalRepresentation() {
+
+		$property = new DIProperty( '_MDAT' );
+
+		$this->assertEquals(
+			'Modification date',
+			$property->getCanonicalLabel()
+		);
+
+		$this->assertEquals(
+			new DIWikiPage( 'Modification_date', SMW_NS_PROPERTY ),
+			$property->getCanonicalDiWikiPage()
+		);
 	}
 
 }

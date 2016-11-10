@@ -5,9 +5,8 @@ namespace SMW\MediaWiki\Jobs;
 use LinkCache;
 use ParserOutput;
 use SMW\ApplicationFactory;
-use SMW\Factbox\FactboxCache;
-use SMW\SemanticDataCache;
-use SMW\DIProperty;
+use SMW\DIWikiPage;
+use SMW\EventHandler;
 use Title;
 
 /**
@@ -80,22 +79,58 @@ class UpdateJob extends JobBase {
 
 		$this->applicationFactory = ApplicationFactory::getInstance();
 
+		if ( $this->matchWikiPageLastModifiedToRevisionLastModified( $this->getTitle() ) ) {
+			return true;
+		}
+
 		if ( $this->getTitle()->exists() ) {
 			return $this->doPrepareForUpdate();
 		}
 
-		$this->applicationFactory->getStore()->deleteSubject( $this->getTitle() );
+		$this->applicationFactory->getStore()->clearData(
+			DIWikiPage::newFromTitle( $this->getTitle() )
+		);
 
 		return true;
+	}
+
+	private function matchWikiPageLastModifiedToRevisionLastModified( $title ) {
+
+		if ( $this->getParameter( 'pm' ) !== ( $this->getParameter( 'pm' ) | SMW_UJ_PM_CLASTMDATE ) ) {
+			return false;
+		}
+
+		$lastModified = $this->applicationFactory->getStore()->getWikiPageLastModifiedTimestamp(
+			DIWikiPage::newFromTitle( $title )
+		);
+
+		if ( $lastModified === \WikiPage::factory( $title )->getTimestamp() ) {
+			$pageUpdater = $this->applicationFactory->newMwCollaboratorFactory()->newPageUpdater();
+			$pageUpdater->addPage( $title );
+			$pageUpdater->doPurgeParserCache();
+			return true;
+		}
+
+		return false;
 	}
 
 	private function doPrepareForUpdate() {
 		return $this->needToParsePageContentBeforeUpdate();
 	}
 
+	/**
+	 * SMW_UJ_PM_NP = new Parser to avoid "Parser state cleared" exception
+	 */
 	private function needToParsePageContentBeforeUpdate() {
 
 		$contentParser = $this->applicationFactory->newContentParser( $this->getTitle() );
+
+		if ( $this->getParameter( 'pm' ) === ( $this->getParameter( 'pm' ) | SMW_UJ_PM_NP ) ) {
+			$contentParser->setParser(
+				new \Parser( $GLOBALS['wgParserConf'] )
+			);
+		}
+
 		$contentParser->forceToUseParser();
 		$contentParser->parse();
 
@@ -114,16 +149,23 @@ class UpdateJob extends JobBase {
 
 	private function updateStore( $parserData ) {
 
-		$cache = $this->applicationFactory->getCache();
-		$cache->setKey( FactboxCache::newCacheId( $this->getTitle()->getArticleID() ) )->delete();
+		$eventHandler = EventHandler::getInstance();
+
+		$dispatchContext = $eventHandler->newDispatchContext();
+		$dispatchContext->set( 'title', $this->getTitle() );
+
+		$eventHandler->getEventDispatcher()->dispatch(
+			'factbox.cache.delete',
+			$dispatchContext
+		);
+
+		$eventHandler->getEventDispatcher()->dispatch(
+			'cached.propertyvalues.prefetcher.reset',
+			$dispatchContext
+		);
 
 		// TODO
 		// Rebuild the factbox
-
-
-		// Set a different updateIndentifier to ensure that the updateJob
-		// will force a comparison of old/new data during the store update
-		$parserData->getSemanticData()->setUpdateIdentifier( 'update-job' );
 
 		$parserData->disableBackgroundUpdateJobs();
 		$parserData->updateStore();

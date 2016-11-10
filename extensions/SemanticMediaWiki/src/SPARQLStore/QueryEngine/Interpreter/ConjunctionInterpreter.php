@@ -5,7 +5,6 @@ namespace SMW\SPARQLStore\QueryEngine\Interpreter;
 use SMW\Query\Language\Conjunction;
 use SMW\Query\Language\Description;
 use SMW\SPARQLStore\QueryEngine\CompoundConditionBuilder;
-use SMW\SPARQLStore\QueryEngine\Condition\Condition;
 use SMW\SPARQLStore\QueryEngine\Condition\FalseCondition;
 use SMW\SPARQLStore\QueryEngine\Condition\FilterCondition;
 use SMW\SPARQLStore\QueryEngine\Condition\SingletonCondition;
@@ -197,7 +196,7 @@ class ConjunctionInterpreter implements DescriptionInterpreter {
 
 	private function createConditionFromSubConditionElements( $subConditionElements ) {
 
-		if ( $subConditionElements->singletonMatchElement !== null ) {
+		if ( $subConditionElements->singletonMatchElement instanceof ExpElement ) {
 			return $this->createSingletonCondition( $subConditionElements );
 		}
 

@@ -2,22 +2,16 @@
 
 namespace SMW\Tests;
 
-use SMW\Tests\Utils\UtilityFactory;
-
-use SMW\ApplicationFactory;
-use SMW\DataValueFactory;
-use SMW\SemanticData;
-use SMW\ParserData;
-use SMW\DIWikiPage;
-
 use ParserOutput;
+use SMW\DataValueFactory;
+use SMW\DIWikiPage;
+use SMW\ParserData;
+use SMW\SemanticData;
 use Title;
 
 /**
  * @covers \SMW\ParserData
- *
- * @group SMW
- * @group SMWExtension
+ * @group semantic-mediawiki
  *
  * @license GNU GPL v2+
  * @since 1.9
@@ -28,12 +22,20 @@ class ParserDataTest extends \PHPUnit_Framework_TestCase {
 
 	private $semanticDataValidator;
 	private $dataValueFactory;
+	private $testEnvironment;
 
 	protected function setUp() {
 		parent::setUp();
 
-		$this->semanticDataValidator = UtilityFactory::getInstance()->newValidatorFactory()->newSemanticDataValidator();
+		$this->testEnvironment = new TestEnvironment();
+
+		$this->semanticDataValidator = $this->testEnvironment->getUtilityFactory()->newValidatorFactory()->newSemanticDataValidator();
 		$this->dataValueFactory = DataValueFactory::getInstance();
+	}
+
+	protected function tearDown() {
+		$this->testEnvironment->tearDown();
+		parent::tearDown();
 	}
 
 	public function testCanConstruct() {
@@ -121,7 +123,7 @@ class ParserDataTest extends \PHPUnit_Framework_TestCase {
 		);
 
 		$instance->addDataValue(
-			$this->dataValueFactory->newPropertyValue( 'Foo', 'Bar' )
+			$this->dataValueFactory->newDataValueByText( 'Foo', 'Bar' )
 		);
 
 		$this->assertFalse(
@@ -143,7 +145,7 @@ class ParserDataTest extends \PHPUnit_Framework_TestCase {
 		$instance = new ParserData( $title, $parserOutput );
 
 		$instance->addDataValue(
-			$this->dataValueFactory->newPropertyValue( 'Foo', 'Bar' )
+			$this->dataValueFactory->newDataValueByText( 'Foo', 'Bar' )
 		);
 
 		$this->assertFalse( $instance->getSemanticData()->isEmpty() );
@@ -173,7 +175,7 @@ class ParserDataTest extends \PHPUnit_Framework_TestCase {
 		);
 
 		$semanticData->addDataValue(
-			$this->dataValueFactory->newPropertyValue( 'Foo', 'Bar' )
+			$this->dataValueFactory->newDataValueByText( 'Foo', 'Bar' )
 		);
 
 		$instance->setSemanticData( $semanticData );
@@ -205,7 +207,7 @@ class ParserDataTest extends \PHPUnit_Framework_TestCase {
 		$instance = new ParserData( $title, $parserOutput );
 
 		$instance->addDataValue(
-			$this->dataValueFactory->newPropertyValue(
+			$this->dataValueFactory->newDataValueByText(
 				$propertyName,
 				$value
 			)
@@ -251,24 +253,36 @@ class ParserDataTest extends \PHPUnit_Framework_TestCase {
 
 	public function testUpdateStore() {
 
-		$store = $this->getMockBuilder( '\SMW\Store' )
+		$idTable = $this->getMockBuilder( '\stdClass' )
+			->setMethods( array( 'hasIDFor' ) )
+			->getMock();
+
+		$idTable->expects( $this->any() )
+			->method( 'hasIDFor' )
+			->will( $this->returnValue( true ) );
+
+		$store = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
 			->disableOriginalConstructor()
-			->setMethods( array( 'updateData' ) )
-			->getMockForAbstractClass();
+			->setMethods( array( 'clearData', 'getObjectIds' ) )
+			->getMock();
 
 		$store->expects( $this->once() )
-			->method( 'updateData' );
+			->method( 'clearData' );
 
-		ApplicationFactory::getInstance()->registerObject( 'Store', $store );
+		$store->expects( $this->any() )
+			->method( 'getObjectIds' )
+			->will( $this->returnValue( $idTable ) );
+
+		$this->testEnvironment->registerObject( 'Store', $store );
 
 		$instance = new ParserData(
 			Title::newFromText( __METHOD__ ),
 			new ParserOutput()
 		);
 
-		$this->assertTrue( $instance->updateStore() );
-
-		ApplicationFactory::clear();
+		$this->assertTrue(
+			$instance->updateStore()
+		);
 	}
 
 	public function testSemanticDataStateToParserOutput() {
@@ -285,7 +299,7 @@ class ParserDataTest extends \PHPUnit_Framework_TestCase {
 		);
 
 		$instance->addDataValue(
-			$this->dataValueFactory->newPropertyValue(
+			$this->dataValueFactory->newDataValueByText(
 				'Foo',
 				'Bar'
 			)
@@ -306,7 +320,7 @@ class ParserDataTest extends \PHPUnit_Framework_TestCase {
 		);
 
 		$import->addDataValue(
-			$this->dataValueFactory->newPropertyValue(
+			$this->dataValueFactory->newDataValueByText(
 				'Foo',
 				'Bar'
 			)
@@ -331,6 +345,69 @@ class ParserDataTest extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals(
 			$import->getSemanticData()->getHash(),
 			$instance->getSemanticData()->getHash()
+		);
+	}
+
+	public function testAddLimitReport() {
+
+		$title = $this->getMockBuilder( 'Title' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$title->expects( $this->once() )
+			->method( 'getNamespace' )
+			->will( $this->returnValue( -1 ) );
+
+		$parserOutput = $this->getMockBuilder( 'ParserOutput' )
+			->disableOriginalConstructor()
+			->setMethods( array( 'setLimitReportData' ) )
+			->getMock();
+
+		$parserOutput->expects( $this->once() )
+			->method( 'setLimitReportData' )
+			->with(
+				$this->stringContains( 'smw-limitreport-Foo' ),
+				$this->stringContains( 'Bar' ) );
+
+		// FIXME 1.22+
+		if ( !method_exists( $parserOutput, 'setLimitReportData' ) ) {
+			$this->markTestSkipped( 'LimitReportData is not available.' );
+		}
+
+		$instance = new ParserData( $title, $parserOutput );
+		$instance->addLimitReport( 'Foo', 'Bar' );
+	}
+
+	public function testCanModifySemanticData() {
+
+		$title = $this->getMockBuilder( 'Title' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$title->expects( $this->once() )
+			->method( 'getNamespace' )
+			->will( $this->returnValue( -1 ) );
+
+		$parserOutput = new ParserOutput();
+
+		// FIXME 1.21+
+		if ( !method_exists( $parserOutput, 'getExtensionData' ) ) {
+			$this->markTestSkipped( 'getExtensionData is not available.' );
+		}
+
+		$instance = new ParserData(
+			$title,
+			$parserOutput
+		);
+
+		$this->assertTrue(
+			$instance->canModifySemanticData()
+		);
+
+		$parserOutput->setExtensionData( 'smw-blockannotation', true );
+
+		$this->assertFalse(
+			$instance->canModifySemanticData()
 		);
 	}
 

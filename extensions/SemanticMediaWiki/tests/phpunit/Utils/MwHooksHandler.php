@@ -2,10 +2,9 @@
 
 namespace SMW\Tests\Utils;
 
-use SMW\MediaWiki\Hooks\HookRegistry;
-
 use Closure;
 use RuntimeException;
+use SMW\MediaWiki\Hooks\HookRegistry;
 
 /**
  * @license GNU GPL v2+
@@ -26,6 +25,8 @@ class MwHooksHandler {
 	private $listOfSmwHooks = array(
 		'SMWStore::updateDataBefore',
 		'smwInitProperties',
+		'SMW::Property::initProperties',
+		'SMW::DataType::initTypes',
 		'SMW::Factbox::BeforeContentGeneration',
 		'SMW::SQLStore::updatePropertyTableDefinitions',
 		'SMW::Store::BeforeQueryResultLookupComplete',
@@ -33,7 +34,12 @@ class MwHooksHandler {
 		'SMW::SQLStore::BeforeChangeTitleComplete',
 		'SMW::SQLStore::BeforeDeleteSubjectComplete',
 		'SMW::SQLStore::AfterDeleteSubjectComplete',
-		'SMW::Parser::BeforeMagicWordsFinder'
+		'SMW::Parser::BeforeMagicWordsFinder',
+		'SMW::SQLStore::BeforeDataRebuildJobInsert',
+		'SMW::SQLStore::AddCustomFixedPropertyTables',
+		'SMW::SQLStore::AfterDataUpdateComplete',
+		'SMW::Browse::AfterIncomingPropertiesLookupComplete',
+		'SMW::Browse::BeforeIncomingPropertyValuesFurtherLinkCreate'
 	);
 
 	/**
@@ -45,10 +51,15 @@ class MwHooksHandler {
 
 		$listOfHooks = array_merge(
 			$this->listOfSmwHooks,
-			$this->getHookRegistry()->getListOfRegisteredFunctionHooks()
+			$this->getHookRegistry()->getHandlerList()
 		);
 
 		foreach ( $listOfHooks as $hook ) {
+
+			// MW 1.19
+			if ( method_exists( 'Hooks', 'clear' ) ) {
+				\Hooks::clear( $hook );
+			}
 
 			if ( !isset( $GLOBALS['wgHooks'][$hook] ) ) {
 				continue;
@@ -89,7 +100,7 @@ class MwHooksHandler {
 
 		$listOfHooks = array_merge(
 			$this->listOfSmwHooks,
-			$this->getHookRegistry()->getListOfRegisteredFunctionHooks()
+			$this->getHookRegistry()->getHandlerList()
 		);
 
 		if ( !in_array( $name, $listOfHooks ) ) {

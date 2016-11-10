@@ -2,26 +2,19 @@
 
 namespace SMW\Tests\Integration\MediaWiki\Hooks;
 
-use SMW\Tests\Utils\UtilityFactory;
-use SMW\Tests\MwDBaseUnitTestCase;
-
-use SMW\Query\Language\SomeProperty;
-use SMW\Query\Language\ValueDescription;
-use SMW\Query\Language\ThingDescription;
-
 use SMW\ApplicationFactory;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
-
+use SMW\Query\Language\SomeProperty;
+use SMW\Query\Language\ValueDescription;
+use SMW\Tests\MwDBaseUnitTestCase;
+use SMW\Tests\Utils\UtilityFactory;
 use SMWQuery as Query;
-
 use Title;
 use WikiPage;
 
 /**
- * @group SMW
- * @group SMWExtension
- * @group semantic-mediawiki-integration
+ * @group semantic-mediawiki
  * @group medium
  *
  * @license GNU GPL v2+
@@ -40,7 +33,7 @@ class TitleMoveCompleteIntegrationTest extends MwDBaseUnitTestCase {
 	protected function setUp() {
 		parent::setUp();
 
-		$utilityFactory = UtilityFactory::getInstance();
+		$utilityFactory = $this->testEnvironment->getUtilityFactory();
 
 		$this->applicationFactory = ApplicationFactory::getInstance();
 		$this->queryResultValidator = $utilityFactory->newValidatorFactory()->newQueryResultValidator();
@@ -50,16 +43,21 @@ class TitleMoveCompleteIntegrationTest extends MwDBaseUnitTestCase {
 
 		$this->mwHooksHandler->register(
 			'TitleMoveComplete',
-			$this->mwHooksHandler->getHookRegistry()->getDefinition( 'TitleMoveComplete' )
+			$this->mwHooksHandler->getHookRegistry()->getHandlerFor( 'TitleMoveComplete' )
 		);
 
 		$this->pageCreator = $utilityFactory->newPageCreator();
+
+		$this->testEnvironment->addConfiguration(
+			'smwgEnabledDeferredUpdate',
+			false
+		);
 	}
 
 	protected function tearDown() {
 
 		$this->mwHooksHandler->restoreListedHooks();
-		$this->applicationFactory->clear();
+		$this->testEnvironment->tearDown();
 
 		$pageDeleter = UtilityFactory::getInstance()->newPageDeleter();
 		$pageDeleter->doDeletePoolOfPages( $this->toBeDeleted );
@@ -110,12 +108,12 @@ class TitleMoveCompleteIntegrationTest extends MwDBaseUnitTestCase {
 		// Further hooks required to ensure in-text annotations can be used for queries
 		$this->mwHooksHandler->register(
 			'InternalParseBeforeLinks',
-			$this->mwHooksHandler->getHookRegistry()->getDefinition( 'InternalParseBeforeLinks' )
+			$this->mwHooksHandler->getHookRegistry()->getHandlerFor( 'InternalParseBeforeLinks' )
 		);
 
 		$this->mwHooksHandler->register(
 			'LinksUpdateConstructed',
-			$this->mwHooksHandler->getHookRegistry()->getDefinition( 'LinksUpdateConstructed' )
+			$this->mwHooksHandler->getHookRegistry()->getHandlerFor( 'LinksUpdateConstructed' )
 		);
 
 		$title = Title::newFromText( __METHOD__ . '-old' );
@@ -133,6 +131,8 @@ class TitleMoveCompleteIntegrationTest extends MwDBaseUnitTestCase {
 			->getPage()
 			->getTitle()
 			->moveTo( $expectedNewTitle, false, 'test', false );
+
+		$this->testEnvironment->executePendingDeferredUpdates();
 
 		$this->assertNull(
 			WikiPage::factory( $title )->getRevision()
@@ -167,7 +167,7 @@ class TitleMoveCompleteIntegrationTest extends MwDBaseUnitTestCase {
 		);
 
 		$this->queryResultValidator->assertThatQueryResultHasSubjects(
-			DIWikiPage::newFromTitle( $expectedNewTitle ),
+			array( DIWikiPage::newFromTitle( $expectedNewTitle ) ),
 			$queryResult
 		);
 
@@ -181,7 +181,7 @@ class TitleMoveCompleteIntegrationTest extends MwDBaseUnitTestCase {
 
 		$this->mwHooksHandler->register(
 			'TitleIsMovable',
-			$this->mwHooksHandler->getHookRegistry()->getDefinition( 'TitleIsMovable' )
+			$this->mwHooksHandler->getHookRegistry()->getHandlerFor( 'TitleIsMovable' )
 		);
 
 		$title = Title::newFromText( 'Modification date', SMW_NS_PROPERTY );

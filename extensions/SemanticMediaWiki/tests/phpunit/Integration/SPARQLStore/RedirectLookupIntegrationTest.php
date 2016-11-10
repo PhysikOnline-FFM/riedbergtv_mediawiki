@@ -2,14 +2,13 @@
 
 namespace SMW\Tests\Integration\SPARQLStore;
 
-use SMW\SPARQLStore\SPARQLStore;
-use SMW\SPARQLStore\RedirectLookup;
-use SMW\DIWikiPage;
-use SMW\DIProperty;
-use SMW\StoreFactory;
 use SMW\DataValueFactory;
+use SMW\DIProperty;
+use SMW\DIWikiPage;
 use SMW\SemanticData;
-
+use SMW\SPARQLStore\RedirectLookup;
+use SMW\SPARQLStore\SPARQLStore;
+use SMW\StoreFactory;
 use SMWExpNsResource as ExpNsResource;
 use SMWExporter as Exporter;
 
@@ -51,7 +50,7 @@ class RedirectLookupIntegrationTest extends \PHPUnit_Framework_TestCase {
 	public function testRedirectTragetLookupForNonExistingEntry( $expNsResource ) {
 
 		$instance = new RedirectLookup( $this->sparqlDatabase );
-		$instance->clear();
+		$instance->reset();
 
 		$exists = null;
 
@@ -68,7 +67,7 @@ class RedirectLookupIntegrationTest extends \PHPUnit_Framework_TestCase {
 		$property = new DIProperty( 'RedirectLookupForExistingEntry' );
 
 		$semanticData = new SemanticData( new DIWikiPage( __METHOD__, NS_MAIN, '' ) );
-		$semanticData->addDataValue( DataValueFactory::getInstance()->newPropertyObjectValue( $property, 'Bar' ) );
+		$semanticData->addDataValue( DataValueFactory::getInstance()->newDataValueByProperty( $property, 'Bar' ) );
 
 		$this->store->doSparqlDataUpdate( $semanticData );
 
@@ -79,7 +78,7 @@ class RedirectLookupIntegrationTest extends \PHPUnit_Framework_TestCase {
 		);
 
 		$instance = new RedirectLookup( $this->sparqlDatabase );
-		$instance->clear();
+		$instance->reset();
 
 		$exists = null;
 

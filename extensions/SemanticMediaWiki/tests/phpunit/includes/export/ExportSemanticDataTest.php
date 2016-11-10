@@ -2,19 +2,16 @@
 
 namespace SMW\Tests\Export;
 
+use SMW\DataValueFactory;
+use SMW\DIProperty;
+use SMW\DIWikiPage;
+use SMW\Exporter\Escaper;
+use SMW\Subobject;
+use SMW\Tests\Utils\Fixtures\FixturesProvider;
 use SMW\Tests\Utils\SemanticDataFactory;
 use SMW\Tests\Utils\Validators\ExportDataValidator;
-
-use SMW\Tests\Utils\Fixtures\FixturesProvider;
-
-use SMW\DIWikiPage;
-use SMW\DIProperty;
-use SMW\DataValueFactory;
-use SMW\Subobject;
-use SMW\Exporter\Escaper;
-
-use SMWExporter as Exporter;
 use SMWExpNsResource as ExpNsResource;
+use SMWExporter as Exporter;
 use SMWExpResource as ExpResource;
 
 /**
@@ -179,7 +176,7 @@ class ExportSemanticDataTest extends \PHPUnit_Framework_TestCase {
 			->newEmptySemanticData();
 
 		$semanticData->addDataValue(
-			$this->dataValueFactory->newPropertyObjectValue( new DIProperty( '_SUBP' ), 'SomeTopProperty' )
+			$this->dataValueFactory->newDataValueByProperty( new DIProperty( '_SUBP' ), 'SomeTopProperty' )
 		);
 
 		$exportData = Exporter::getInstance()->makeExportData( $semanticData );
@@ -208,7 +205,7 @@ class ExportSemanticDataTest extends \PHPUnit_Framework_TestCase {
 		$semanticData = $this->semanticDataFactory->newEmptySemanticData( __METHOD__ );
 
 		$semanticData->addDataValue(
-			$this->dataValueFactory->newPropertyObjectValue( new DIProperty( '_INST' ), 'SomeCategory' )
+			$this->dataValueFactory->newDataValueByProperty( new DIProperty( '_INST' ), 'SomeCategory' )
 		);
 
 		$exportData = Exporter::getInstance()->makeExportData( $semanticData );
@@ -219,9 +216,9 @@ class ExportSemanticDataTest extends \PHPUnit_Framework_TestCase {
 		);
 
 		$expectedResourceElement = new ExpNsResource(
-			Escaper::encodePage( new DIWikiPage( 'SomeCategory', NS_CATEGORY ) ),
-			Exporter::getInstance()->getNamespaceUri( 'wiki' ),
-			'wiki',
+			'SomeCategory',
+			Exporter::getInstance()->getNamespaceUri( 'category' ),
+			'category',
 			new DIWikiPage( 'SomeCategory', NS_CATEGORY )
 		);
 
@@ -239,7 +236,7 @@ class ExportSemanticDataTest extends \PHPUnit_Framework_TestCase {
 			->newEmptySemanticData();
 
 		$semanticData->addDataValue(
-			$this->dataValueFactory->newPropertyObjectValue( new DIProperty( '_SUBC' ), 'SomeTopCategory' )
+			$this->dataValueFactory->newDataValueByProperty( new DIProperty( '_SUBC' ), 'SomeTopCategory' )
 		);
 
 		$exportData = Exporter::getInstance()->makeExportData( $semanticData );
@@ -250,9 +247,9 @@ class ExportSemanticDataTest extends \PHPUnit_Framework_TestCase {
 		);
 
 		$expectedResourceElement = new ExpNsResource(
-			Escaper::encodePage( new DIWikiPage( 'SomeTopCategory', NS_CATEGORY ) ),
-			Exporter::getInstance()->getNamespaceUri( 'wiki' ),
-			'wiki',
+			'SomeTopCategory',
+			Exporter::getInstance()->getNamespaceUri( 'category' ),
+			'category',
 			new DIWikiPage( 'SomeTopCategory', NS_CATEGORY )
 		);
 
@@ -342,7 +339,7 @@ class ExportSemanticDataTest extends \PHPUnit_Framework_TestCase {
 	}
 
 	private function transformPropertyLabelToAuxiliary( DIProperty $property ) {
-		return str_replace( ' ', '_', $property->getLabel() ) . '-23' . 'aux';
+		return str_replace( ' ', '_', $property->getLabel() );
 	}
 
 }

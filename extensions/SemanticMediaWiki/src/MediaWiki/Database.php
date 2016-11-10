@@ -41,6 +41,11 @@ class Database {
 	private $dbPrefix = '';
 
 	/**
+	 * @var string
+	 */
+	private $disabledTransactions = false;
+
+	/**
 	 * @since 1.9
 	 *
 	 * @param DBConnectionProvider $readConnectionProvider
@@ -317,6 +322,53 @@ class Database {
 	}
 
 	/**
+	 * @note Use a blank trx profiler to ignore exceptions
+	 *
+	 * @since 2.4
+	 */
+	function resetTransactionProfiler() {
+		// MW 1.27
+		if ( method_exists( $this->writeConnection(), 'setTransactionProfiler' ) ) {
+			$this->writeConnection()->setTransactionProfiler( new \TransactionProfiler() );
+		}
+	}
+
+	/**
+	 * @see DatabaseBase::clearFlag
+	 *
+	 * @since 2.4
+	 */
+	function clearFlag( $flag ) {
+		$this->writeConnection()->clearFlag( $flag );
+	}
+
+	/**
+	 * @note According to notes in SqlBagOStuff.php#L161
+	 * "... and PostgreSQL needs to know if we are in transaction or not"
+	 *
+	 * @since 2.4
+	 */
+	public function disableTransactions() {
+		if ( $this->writeConnection()->getType() == 'mysql' && $this->writeConnection()->getFlag( DBO_TRX ) ) {
+			$this->writeConnection()->clearFlag( DBO_TRX );
+			$this->disabledTransactions = true;
+		}
+	}
+
+	/**
+	 * Can only be used in cases where Database::disableTransactions was
+	 * successful
+	 *
+	 * @since 2.4
+	 */
+	public function enableTransactions() {
+		if ( $this->disabledTransactions ) {
+			$this->writeConnection()->setFlag( DBO_TRX );
+			$this->disabledTransactions = false;
+		}
+	}
+
+	/**
 	 * @see DatabaseBase::insert
 	 *
 	 * @since 1.9.1
@@ -433,6 +485,51 @@ class Database {
 		}
 
 		unset( $this->transactionQueue[$fname] );
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @param string $fname
+	 */
+	public function beginAtomicTransaction( $fname = __METHOD__ ) {
+
+		// MW 1.23
+		if ( !method_exists( $this->writeConnection(), 'startAtomic' ) ) {
+			return null;
+		}
+
+		$this->writeConnection()->startAtomic( $fname );
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @param string $fname
+	 */
+	public function endAtomicTransaction( $fname = __METHOD__ ) {
+
+		// MW 1.23
+		if ( !method_exists( $this->writeConnection(), 'endAtomic' ) ) {
+			return null;
+		}
+
+		$this->writeConnection()->endAtomic( $fname );
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @param callable $callback
+	 */
+	public function onTransactionIdle( $callback ) {
+
+		// FIXME For 1.19 it is an unknown method hence execute without idle
+		if ( !method_exists( $this->readConnection(), 'onTransactionIdle' ) ) {
+			return call_user_func( $callback );
+		}
+
+		$this->readConnection()->onTransactionIdle( $callback );
 	}
 
 	private function readConnection() {

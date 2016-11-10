@@ -2,18 +2,12 @@
 
 namespace SMW\Tests\Integration\MediaWiki;
 
-use SMW\Tests\Utils\Validators\SemanticDataValidator;
-use SMW\Tests\Utils\ParserFactory;
-use SMW\Tests\Utils\PageCreator;
-use SMW\Tests\MwDBaseUnitTestCase;
-
-use SMW\ContentParser;
-use SMW\ParserData;
-use SMW\DIWikiPage;
-
-use Title;
 use LinksUpdate;
 use ParserOutput;
+use SMW\DIWikiPage;
+use SMW\Tests\MwDBaseUnitTestCase;
+use SMW\Tests\Utils\PageCreator;
+use Title;
 
 /**
  *
@@ -43,17 +37,10 @@ class LinksUpdateEmptyParserOutputDBIntegrationTest extends MwDBaseUnitTestCase 
 
 		$propertiesCountBeforeUpdate = count( $this->getStore()->getSemanticData( $subject )->getProperties() );
 
-		/**
-		 * See #347 and LinksUpdateConstructed
-		 */
 		$linksUpdate = new LinksUpdate( $title, new ParserOutput() );
 		$linksUpdate->doUpdate();
 
-		/**
-		 * Asserts that before and after the update, the SemanticData container
-		 * holds the same amount of properties despite the fact that the ParserOutput
-		 * was invoked empty
-		 */
+
 		$this->assertCount(
 			$propertiesCountBeforeUpdate,
 			$this->getStore()->getSemanticData( $subject )->getProperties()

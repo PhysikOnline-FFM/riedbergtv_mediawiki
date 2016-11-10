@@ -2,20 +2,16 @@
 
 namespace SMW\Tests;
 
-use SMW\Tests\Utils\UtilityFactory;
-
-use SMW\SetParserFunction;
-use SMW\ParameterFormatterFactory;
-use SMW\MediaWiki\Renderer\HtmlTemplateRenderer;
-use SMW\MediaWiki\Renderer\WikitextTemplateRenderer;
-use SMW\ApplicationFactory;
-
-use Title;
 use ParserOutput;
+use SMW\ApplicationFactory;
+use SMW\MediaWiki\Renderer\WikitextTemplateRenderer;
+use SMW\ParameterFormatterFactory;
+use SMW\SetParserFunction;
+use SMW\Tests\Utils\UtilityFactory;
+use Title;
 
 /**
  * @covers \SMW\SetParserFunction
- *
  * @group semantic-mediawiki
  *
  * @license GNU GPL v2+
@@ -51,7 +47,7 @@ class SetParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			->disableOriginalConstructor()
 			->getMock();
 
-		$templateRenderer = $this->getMockBuilder( '\SMW\MediaWiki\Renderer\HtmlTemplateRenderer' )
+		$templateRenderer = $this->getMockBuilder( '\SMW\MediaWiki\Renderer\WikitextTemplateRenderer' )
 			->disableOriginalConstructor()
 			->getMock();
 
@@ -83,7 +79,7 @@ class SetParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			->method( 'getHtml' )
 			->will( $this->returnValue( 'Foo' ) );
 
-		$templateRenderer = $this->getMockBuilder( '\SMW\MediaWiki\Renderer\HtmlTemplateRenderer' )
+		$templateRenderer = $this->getMockBuilder( '\SMW\MediaWiki\Renderer\WikitextTemplateRenderer' )
 			->disableOriginalConstructor()
 			->getMock();
 
@@ -117,7 +113,7 @@ class SetParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			->method( 'addFromArray' )
 			->will( $this->returnSelf() );
 
-		$templateRenderer = $this->getMockBuilder( '\SMW\MediaWiki\Renderer\HtmlTemplateRenderer' )
+		$templateRenderer = $this->getMockBuilder( '\SMW\MediaWiki\Renderer\WikitextTemplateRenderer' )
 			->disableOriginalConstructor()
 			->getMock();
 
@@ -137,13 +133,13 @@ class SetParserFunctionTest extends \PHPUnit_Framework_TestCase {
 
 	public function testTemplateSupport() {
 
-		$params = array( 'Foo=bar', 'BarFoo=9001', 'template=FooTemplate' );
+		$params = array( 'Foo=bar', 'Foo=foobar', 'BarFoo=9001', 'template=FooTemplate' );
 
 		$expected = array(
 			'errors' => 0,
 			'propertyCount'  => 2,
 			'propertyLabels' => array( 'Foo', 'BarFoo' ),
-			'propertyValues' => array( 'Bar', '9001' )
+			'propertyValues' => array( 'Bar', '9001', 'Foobar' )
 		);
 
 		$parserData = $this->applicationFactory->newParserData(
@@ -159,19 +155,7 @@ class SetParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			->method( 'addFromArray' )
 			->will( $this->returnSelf() );
 
-		$parser = $this->getMockBuilder( '\Parser' )
-			->disableOriginalConstructor()
-			->getMock();
-
-		$parser->expects( $this->once() )
-			->method( 'recursiveTagParse' )
-			->with(
-				$this->stringContains( '{{FooTemplate|property=Foo|value=bar|#=0}}{{FooTemplate|property=BarFoo|value=9001|#=1}}' ) );
-
-		$templateRenderer = new HtmlTemplateRenderer(
-			new WikitextTemplateRenderer(),
-			$parser
-		);
+		$templateRenderer = new WikitextTemplateRenderer();
 
 		$instance = new SetParserFunction(
 			$parserData,
@@ -243,8 +227,9 @@ class SetParserFunctionTest extends \PHPUnit_Framework_TestCase {
 			array( 'Foo=bar', '_Foo=9001' ),
 			array(
 				'errors' => 1,
-				'propertyCount'  => 1,
-				'propertyLabels' => array( 'Foo' ),
+				'propertyCount'  => 2,
+				'strict-mode-valuematch' => false,
+				'propertyKeys' => array( 'Foo', '_ERRC' ),
 				'propertyValues' => array( 'Bar' )
 			)
 		);

@@ -2,11 +2,11 @@
 
 namespace SMW;
 
-use SMW\MediaWiki\MagicWordFinder;
+use Hooks;
+use SMW\MediaWiki\MagicWordsFinder;
 use SMW\MediaWiki\RedirectTargetFinder;
 use SMWOutputs;
 use Title;
-use Hooks;
 
 /**
  * Class collects all functions for wiki text parsing / processing that are
@@ -30,17 +30,17 @@ class InTextAnnotationParser {
 	/**
 	 * @var ParserData
 	 */
-	protected $parserData;
+	private $parserData;
 
 	/**
-	 * @var MagicWordFinder
+	 * @var MagicWordsFinder
 	 */
-	protected $magicWordFinder;
+	private $magicWordsFinder;
 
 	/**
 	 * @var RedirectTargetFinder
 	 */
-	protected $redirectTargetFinder;
+	private $redirectTargetFinder;
 
 	/**
 	 * @var DataValueFactory
@@ -70,18 +70,36 @@ class InTextAnnotationParser {
 	protected $isAnnotation = true;
 
 	/**
+	 * @var boolean
+	 */
+	private $strictModeState = true;
+
+	/**
 	 * @since 1.9
 	 *
 	 * @param ParserData $parserData
-	 * @param MagicWordFinder $magicWordFinder
+	 * @param MagicWordsFinder $magicWordsFinder
 	 * @param RedirectTargetFinder $redirectTargetFinder
 	 */
-	public function __construct( ParserData $parserData, MagicWordFinder $magicWordFinder, RedirectTargetFinder $redirectTargetFinder ) {
+	public function __construct( ParserData $parserData, MagicWordsFinder $magicWordsFinder, RedirectTargetFinder $redirectTargetFinder ) {
 		$this->parserData = $parserData;
-		$this->magicWordFinder = $magicWordFinder;
+		$this->magicWordsFinder = $magicWordsFinder;
 		$this->redirectTargetFinder = $redirectTargetFinder;
 		$this->dataValueFactory = DataValueFactory::getInstance();
 		$this->applicationFactory = ApplicationFactory::getInstance();
+	}
+
+	/**
+	 * Whether a strict interpretation (e.g [[property::value:partOfTheValue::alsoPartOfTheValue]])
+	 * or a more loose interpretation (e.g. [[property1::property2::value]]) for
+	 * annotations is to be applied.
+	 *
+	 * @since 2.3
+	 *
+	 * @param boolean $strictModeState
+	 */
+	public function setStrictModeState( $strictModeState ) {
+		$this->strictModeState = (bool)$strictModeState;
 	}
 
 	/**
@@ -96,6 +114,10 @@ class InTextAnnotationParser {
 
 		$title = $this->parserData->getTitle();
 		$this->settings = $this->applicationFactory->getSettings();
+		$start = microtime( true );
+
+		// Identifies the current parser run (especially when called recursively)
+		$this->parserData->getSubject()->setContextReference( 'intp:' . uniqid() );
 
 		$this->doStripMagicWordsFromText( $text );
 
@@ -112,11 +134,86 @@ class InTextAnnotationParser {
 
 		if ( $this->isEnabledNamespace ) {
 			$this->parserData->getOutput()->addModules( $this->getModules() );
+
+			if ( method_exists( $this->parserData->getOutput(), 'recordOption' ) ) {
+				$this->parserData->getOutput()->recordOption( 'userlang' );
+			}
 		}
 
 		$this->parserData->pushSemanticDataToParserOutput();
 
+		$this->parserData->addLimitReport(
+			'intext-parsertime',
+			number_format( ( microtime( true ) - $start ), 3 )
+		);
+
 		SMWOutputs::commitToParserOutput( $this->parserData->getOutput() );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param string $text
+	 *
+	 * @return text
+	 */
+	public static function decodeSquareBracket( $text ) {
+		return str_replace( array( '%5B', '%5D' ), array( '[', ']' ), $text );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param string $text
+	 *
+	 * @return text
+	 */
+	public static function obscureAnnotation( $text ) {
+		return preg_replace_callback(
+			self::getRegexpPattern( false ),
+			function( array $matches ) {
+				return str_replace( '[', '&#x005B;', $matches[0] );
+			},
+			self::decodeSquareBracket( $text )
+		);
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param string $text
+	 *
+	 * @return text
+	 */
+	public static function removeAnnotation( $text ) {
+		return preg_replace_callback(
+			self::getRegexpPattern( false ),
+			function( array $matches ) {
+				$caption = false;
+				$value = '';
+
+				// #1453
+				if ( $matches[0] === '[[SMW::off]]' || $matches[0] === '[[SMW::on]]' ) {
+					return false;
+				}
+
+				// Strict mode matching
+				if ( array_key_exists( 1, $matches ) ) {
+					if ( strpos( $matches[1], ':' ) !== false && isset( $matches[2] ) ) {
+						list( $matches[1], $matches[2] ) = explode( '::', $matches[1] . '::' . $matches[2], 2 );
+					}
+				}
+
+				if ( array_key_exists( 2, $matches ) ) {
+					$parts = explode( '|', $matches[2] );
+					$value = array_key_exists( 0, $parts ) ? $parts[0] : '';
+					$caption = array_key_exists( 1, $parts ) ? $parts[1] : false;
+				}
+
+				return $caption !== false ? $caption : $value;
+			},
+			self::decodeSquareBracket( $text )
+		);
 	}
 
 	/**
@@ -174,7 +271,7 @@ class InTextAnnotationParser {
 	 *
 	 * @return string
 	 */
-	protected function getRegexpPattern( $linksInValues ) {
+	protected static function getRegexpPattern( $linksInValues ) {
 		if ( $linksInValues ) {
 			return '/\[\[             # Beginning of the link
 				(?:([^:][^]]*):[=:])+ # Property name (or a list of those)
@@ -243,6 +340,19 @@ class InTextAnnotationParser {
 		$value = '';
 
 		if ( array_key_exists( 1, $semanticLink ) ) {
+
+			// #1252 Strict mode being disabled for support of multi property
+			// assignments (e.g. [[property1::property2::value]])
+
+			// #1066 Strict mode is to check for colon(s) produced by something
+			// like [[Foo::Bar::Foobar]], [[Foo:::0049 30 12345678]]
+			// In case a colon appears (in what is expected to be a string without a colon)
+			// then concatenate the string again and split for the first :: occurrence
+			// only
+			if ( $this->strictModeState && strpos( $semanticLink[1], ':' ) !== false && isset( $semanticLink[2] ) ) {
+				list( $semanticLink[1], $semanticLink[2] ) = explode( '::', $semanticLink[1] . '::' . $semanticLink[2], 2 );
+			}
+
 			$property = $semanticLink[1];
 		}
 
@@ -287,18 +397,21 @@ class InTextAnnotationParser {
 	 */
 	protected function addPropertyValue( array $properties, $value, $valueCaption ) {
 
-		$subject = $this->parserData->getSemanticData()->getSubject();
+		$subject = $this->parserData->getSubject();
 
 		// Add properties to the semantic container
 		foreach ( $properties as $property ) {
-			$dataValue = $this->dataValueFactory->newPropertyValue(
+			$dataValue = $this->dataValueFactory->newDataValueByText(
 				$property,
 				$value,
 				$valueCaption,
 				$subject
 			);
 
-			if ( $this->isEnabledNamespace && $this->isAnnotation ) {
+			if (
+				$this->isEnabledNamespace &&
+				$this->isAnnotation &&
+				$this->parserData->canModifySemanticData() ) {
 				$this->parserData->addDataValue( $dataValue );
 			}
 		}
@@ -310,7 +423,9 @@ class InTextAnnotationParser {
 		if ( ( $this->settings->get( 'smwgInlineErrors' ) &&
 			$this->isEnabledNamespace && $this->isAnnotation ) &&
 			( !$dataValue->isValid() ) ) {
-			$result .= $dataValue->getErrorText();
+			// Encode `:` to avoid a comment block and instead of the nowiki tag
+			// use &#58; as placeholder
+			$result = str_replace( ':', '&#58;', $result ) . $dataValue->getErrorText();
 		}
 
 		return $result;
@@ -320,7 +435,7 @@ class InTextAnnotationParser {
 
 		$words = array();
 
-		$this->magicWordFinder->setOutput( $this->parserData->getOutput() );
+		$this->magicWordsFinder->setOutput( $this->parserData->getOutput() );
 
 		$magicWords = array(
 			'SMW_NOFACTBOX',
@@ -330,10 +445,10 @@ class InTextAnnotationParser {
 		Hooks::run( 'SMW::Parser::BeforeMagicWordsFinder', array( &$magicWords ) );
 
 		foreach ( $magicWords as $magicWord ) {
-			$words = $words + $this->magicWordFinder->matchAndRemove( $magicWord, $text );
+			$words[] = $this->magicWordsFinder->findMagicWordInText( $magicWord, $text );
 		}
 
-		$this->magicWordFinder->pushMagicWordsToParserOutput( $words );
+		$this->magicWordsFinder->pushMagicWordsToParserOutput( $words );
 
 		return $words;
 	}

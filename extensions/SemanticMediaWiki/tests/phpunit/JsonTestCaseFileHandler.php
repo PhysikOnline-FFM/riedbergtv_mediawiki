@@ -2,9 +2,9 @@
 
 namespace SMW\Tests;
 
-use SMW\FileReader;
-
 use RuntimeException;
+use SMW\FileReader;
+use SMW\Localizer;
 
 /**
  * @license GNU GPL v2+
@@ -41,12 +41,7 @@ class JsonTestCaseFileHandler {
 	public function isIncomplete() {
 
 		$meta = $this->getFileContentsFor( 'meta' );
-
-		try{
-			$isIncomplete = (bool)$meta['is-incomplete'];
-		} catch( \Exception $e ) {
-			$isIncomplete = false;
-		}
+		$isIncomplete = isset( $meta['is-incomplete'] ) ? (bool)$meta['is-incomplete'] : false;
 
 		if ( $isIncomplete ) {
 			$this->reasonToSkip = '"'. $this->getFileContentsFor( 'description' ) . '" has been marked as incomplete.';
@@ -64,13 +59,43 @@ class JsonTestCaseFileHandler {
 
 		$meta = $this->getFileContentsFor( 'meta' );
 
-		try{
-			$debug = (bool)$meta['debug'];
-		} catch( \Exception $e ) {
-			$debug = false;
+		return isset( $meta['debug'] ) ? (bool)$meta['debug'] : false;
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param array $case
+	 * @param string $identifier
+	 *
+	 * @return boolean
+	 */
+	public function requiredToSkipFor( array $case, $identifier ) {
+
+		$skipOn = isset( $case['skip-on'] ) ? $case['skip-on'] : array();
+		$identifier = strtolower( $identifier );
+
+		$mwVersion = $GLOBALS['wgVersion'];
+
+		foreach ( $skipOn as $id => $reason ) {
+
+			if ( $identifier === $id ) {
+				return true;
+			}
+
+			if ( strpos( $id, 'mw-' ) === false ) {
+				continue;
+			}
+
+			list( $mw, $versionToSkip ) = explode( "mw-", $id, 2 );
+
+			if ( version_compare( $mwVersion, $versionToSkip, '=' ) ) {
+				$this->reasonToSkip = "MediaWiki " . $mwVersion . " version is not supported ({$reason})";
+				return true;
+			}
 		}
 
-		return $debug;
+		return false;
 	}
 
 	/**
@@ -155,6 +180,8 @@ class JsonTestCaseFileHandler {
 		$settings = $this->getFileContentsFor( 'settings' );
 
 		if ( ( $key === 'wgContLang' || $key === 'wgLang' ) && isset( $settings[$key] ) ) {
+			\RequestContext::getMain()->setLanguage( $settings[$key] );
+			Localizer::getInstance()->clear();
 			return \Language::factory( $settings[$key] );
 		}
 
@@ -167,6 +194,21 @@ class JsonTestCaseFileHandler {
 			}
 
 			return $smwgNamespacesWithSemanticLinks;
+		}
+
+		if ( $key === 'smwgDVFeatures' && isset( $settings[$key] ) ) {
+			$smwgDVFeatures = '';
+
+			foreach ( $settings[$key] as $value ) {
+				$smwgDVFeatures = constant( $value ) | $smwgDVFeatures;
+			}
+
+			return $smwgDVFeatures;
+		}
+
+		// Needs special attention due to constant usage
+		if ( $key === 'smwgQConceptCaching' && isset( $settings[$key] ) ) {
+			return constant( $settings[$key] );
 		}
 
 		if ( isset( $settings[$key] ) ) {
@@ -200,6 +242,24 @@ class JsonTestCaseFileHandler {
 	}
 
 	/**
+	 * @since 2.4
+	 *
+	 * @param string $key
+	 *
+	 * @return array
+	 */
+	public function getContentsFor( $key ) {
+
+		try{
+			$contents = $this->getFileContentsFor( $key );
+		} catch( \Exception $e ) {
+			$contents = array();
+		}
+
+		return $contents;
+	}
+
+	/**
 	 * @since 2.2
 	 *
 	 * @param string $key
@@ -207,14 +267,7 @@ class JsonTestCaseFileHandler {
 	 * @return array
 	 */
 	public function findTestCasesFor( $key ) {
-
-		try{
-			$testcases = $this->getFileContentsFor( $key );
-		} catch( \Exception $e ) {
-			$testcases = array();
-		}
-
-		return $testcases;
+		return $this->getContentsFor( $key );
 	}
 
 	private function getFileContentsFor( $index ) {

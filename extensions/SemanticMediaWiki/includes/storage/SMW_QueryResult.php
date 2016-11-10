@@ -1,8 +1,10 @@
 <?php
 
-use SMW\Query\PrintRequest;
-use SMW\SerializerFactory;
 use SMW\HashBuilder;
+use SMW\Query\PrintRequest;
+use SMW\Query\QueryLinker;
+use SMW\Query\TemporaryEntityListAccumulator;
+use SMW\SerializerFactory;
 
 /**
  * Objects of this class encapsulate the result of a query in SMW. They
@@ -32,7 +34,7 @@ class SMWQueryResult {
 	/**
 	 * Array of SMWPrintRequest objects, indexed by their natural hash keys
 	 *
-*@var PrintRequest[]
+	 * @var PrintRequest[]
 	 */
 	protected $mPrintRequests;
 
@@ -62,6 +64,18 @@ class SMWQueryResult {
 	private $countValue;
 
 	/**
+	 * Indicates whether results have been retrieved from cache or not
+	 *
+	 * @var boolean
+	 */
+	private $isFromCache = false;
+
+	/**
+	 * @var TemporaryEntityListAccumulator
+	 */
+	private $temporaryEntityListAccumulator;
+
+	/**
 	 * Initialise the object with an array of SMWPrintRequest objects, which
 	 * define the structure of the result "table" (one for each column).
 	 *
@@ -80,6 +94,34 @@ class SMWQueryResult {
 		$this->mFurtherResults = $furtherRes;
 		$this->mQuery = $query;
 		$this->mStore = $store;
+		$this->temporaryEntityListAccumulator = new TemporaryEntityListAccumulator( $query );
+	}
+
+	/**
+	 * @since  2.4
+	 *
+	 * @return TemporaryEntityListAccumulator
+	 */
+	public function getEntityListAccumulator() {
+		return $this->temporaryEntityListAccumulator;
+	}
+
+	/**
+	 * @since  2.4
+	 *
+	 * @param boolean $isFromCache
+	 */
+	public function setFromCache( $isFromCache ) {
+		$this->isFromCache = (bool)$isFromCache;
+	}
+
+	/**
+	 * @since  2.4
+	 *
+	 * @return boolean
+	 */
+	public function isFromCache() {
+		return $this->isFromCache;
 	}
 
 	/**
@@ -108,7 +150,9 @@ class SMWQueryResult {
 		$row = array();
 
 		foreach ( $this->mPrintRequests as $p ) {
-			$row[] = new SMWResultArray( $page, $p, $this->mStore );
+			$resultArray = new SMWResultArray( $page, $p, $this->mStore );
+			$resultArray->setEntityListAccumulator( $this->temporaryEntityListAccumulator );
+			$row[] = $resultArray;
 		}
 
 		return $row;
@@ -131,6 +175,13 @@ class SMWQueryResult {
 	 */
 	public function getResults() {
 		return $this->mResults;
+	}
+
+	/**
+	 * @since 2.3
+	 */
+	public function reset() {
+		return reset( $this->mResults );
 	}
 
 	/**
@@ -234,54 +285,11 @@ class SMWQueryResult {
 	 * @return SMWInfolink
 	 */
 	public function getQueryLink( $caption = false ) {
-		$link = $this->getLink();
 
-		if ( $caption == false ) {
-			// The space is right here, not in the QPs!
-			$caption = ' ' . wfMessage( 'smw_iq_moreresults' )->inContentLanguage()->text();
-		}
+		$link = QueryLinker::get( $this->mQuery );
 
 		$link->setCaption( $caption );
-
-		$params = array( trim( $this->mQuery->getQueryString() ) );
-
-		foreach ( $this->mQuery->getExtraPrintouts() as /* PrintRequest */ $printout ) {
-			$serialization = $printout->getSerialisation();
-
-			// TODO: this is a hack to get rid of the mainlabel param in case it was automatically added
-			// by SMWQueryProcessor::addThisPrintout. Should be done nicer when this link creation gets redone.
-			if ( $serialization !== '?#' ) {
-				$params[] = $serialization;
-			}
-		}
-
-		if ( $this->mQuery->getMainLabel() !== false ) {
-			$params['mainlabel'] = $this->mQuery->getMainLabel();
-		}
-
-		$params['offset'] = $this->mQuery->getOffset() + count( $this->mResults );
-
-		if ( $params['offset'] === 0 ) {
-			unset( $params['offset'] );
-		}
-
-		if ( $this->mQuery->getLimit() > 0 ) {
-			$params['limit'] = $this->mQuery->getLimit();
-		}
-
-		if ( count( $this->mQuery->sortkeys ) > 0 ) {
-			$order = implode( ',', $this->mQuery->sortkeys );
-			$sort = implode( ',', array_keys( $this->mQuery->sortkeys ) );
-
-			if ( $sort !== '' || $order != 'ASC' ) {
-				$params['order'] = $order;
-				$params['sort'] = $sort;
-			}
-		}
-
-		foreach ( $params as $key => $param ) {
-			$link->setParameter( $param, is_string( $key ) ? $key : false );
-		}
+		$link->setParameter( $this->mQuery->getOffset() + count( $this->mResults ), 'offset' );
 
 		return $link;
 	}
@@ -339,6 +347,8 @@ class SMWQueryResult {
 	 */
 	public function toArray() {
 
+		$time = microtime( true );
+
 		// @note micro optimization: We call getSerializedQueryResult()
 		// only once and create the hash here instead of calling getHash()
 		// to avoid getSerializedQueryResult() being called again
@@ -347,9 +357,11 @@ class SMWQueryResult {
 
 		return array_merge( $serializeArray, array(
 			'meta'=> array(
-				'hash'   => md5( FormatJson::encode( $serializeArray ) ),
+				'hash'   => HashBuilder::createHashIdForContent( $serializeArray ),
 				'count'  => $this->getCount(),
-				'offset' => $this->mQuery->getOffset()
+				'offset' => $this->mQuery->getOffset(),
+				'source' => $this->mQuery->getQuerySource(),
+				'time'   => number_format( ( microtime( true ) - $time ), 6, '.', '' )
 				)
 			)
 		);

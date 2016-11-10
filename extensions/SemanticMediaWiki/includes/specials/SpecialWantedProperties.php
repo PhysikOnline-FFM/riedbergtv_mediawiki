@@ -37,7 +37,6 @@ class SpecialWantedProperties extends SpecialPage {
 	 * @see SpecialPage::execute
 	 */
 	public function execute( $param ) {
-		Profiler::In( __METHOD__ );
 
 		$out = $this->getOutput();
 
@@ -52,20 +51,13 @@ class SpecialWantedProperties extends SpecialPage {
 		// Ensure locally collected output data is pushed to the output!
 		// ?? still needed !!
 		SMWOutputs::commitToOutputPage( $out );
-
-		Profiler::Out( __METHOD__ );
 	}
 
-	/**
-	 * FIXME MW 1.24 wfCheckLimits was deprecated in MediaWiki 1.24
-	 */
 	private function getLimitOffset() {
-
-		if ( method_exists( $this->getRequest(), 'getLimitOffset' ) ) {
-			return $this->getRequest()->getLimitOffset();
-		}
-
-		return wfCheckLimits();
+		return $this->getRequest()->getLimitOffset();
 	}
 
+	protected function getGroupName() {
+		return 'maintenance';
+	}
 }

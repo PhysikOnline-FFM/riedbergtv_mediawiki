@@ -2,9 +2,9 @@
 
 namespace SMW;
 
+use Parser;
 use ParserOptions;
 use Revision;
-use Parser;
 use Title;
 use User;
 
@@ -43,6 +43,11 @@ class ContentParser {
 	private $enabledToUseContentHandler = true;
 
 	/**
+	 * @var boolean
+	 */
+	private $skipInTextAnnotationParser = false;
+
+	/**
 	 * @note Injecting new Parser() alone will not yield an expected result and
 	 * doing new Parser( $GLOBALS['wgParserConf'] brings no benefits therefore
 	 * we stick to the GLOBAL as fallback if no parser is injected.
@@ -59,6 +64,15 @@ class ContentParser {
 		if ( $this->parser === null ) {
 			$this->parser = $GLOBALS['wgParser'];
 		}
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @return Parser $parser
+	 */
+	public function setParser( Parser $parser ) {
+		$this->parser = $parser;
 	}
 
 	/**
@@ -107,6 +121,10 @@ class ContentParser {
 		return $this->errors;
 	}
 
+	public function skipInTextAnnotationParser() {
+		return $this->skipInTextAnnotationParser = true;
+	}
+
 	/**
 	 * Generates or fetches the ParserOutput object from an appropriate source
 	 *
@@ -130,7 +148,6 @@ class ContentParser {
 	}
 
 	protected function parseText( $text ) {
-		Profiler::In( __METHOD__ );
 
 		$this->parserOutput = $this->parser->parse(
 			$text,
@@ -138,7 +155,6 @@ class ContentParser {
 			$this->makeParserOptions()
 		);
 
-		Profiler::Out( __METHOD__ );
 		return $this;
 	}
 
@@ -149,7 +165,6 @@ class ContentParser {
 	 * @note If no content is available create an empty object
 	 */
 	protected function fetchFromContent() {
-		Profiler::In( __METHOD__ );
 
 		if ( $this->getRevision() === null ) {
 			return $this->msgForNullRevision();
@@ -168,12 +183,10 @@ class ContentParser {
 			true
 		);
 
-		Profiler::Out( __METHOD__ );
 		return $this;
 	}
 
 	protected function fetchFromParser() {
-		Profiler::In( __METHOD__ );
 
 		if ( $this->getRevision() === null ) {
 			return $this->msgForNullRevision();
@@ -188,7 +201,6 @@ class ContentParser {
 			$this->getRevision()->getID()
 		);
 
-		Profiler::Out( __METHOD__ );
 		return $this;
 	}
 
@@ -205,7 +217,13 @@ class ContentParser {
 			$user = User::newFromId( $this->getRevision()->getUser() );
 		}
 
-		return new ParserOptions( $user );
+		$parserOptions = new ParserOptions( $user );
+
+		// Use the InterfaceMessage marker to skip InTextAnnotationParser
+		// processing
+		$parserOptions->setInterfaceMessage( $this->skipInTextAnnotationParser );
+
+		return $parserOptions;
 	}
 
 	protected function getRevision() {

@@ -1,10 +1,10 @@
 <?php
 
 use SMW\ApplicationFactory;
-use SMW\Query\PrintRequest;
-use SMW\SemanticData;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
+use SMW\Query\PrintRequest;
+use SMW\SemanticData;
 
 /**
  * File holding the SMWExportController class that provides basic functions for
@@ -97,6 +97,8 @@ class SMWExportController {
 	 * optional output file is writable).
 	 * @param string $outfilename URL of the file that output should be written
 	 * to, or empty string for writting to the standard output.
+	 *
+	 * @return boolean
 	 */
 	protected function prepareSerialization( $outfilename = '' ) {
 		$this->serializer->clear();
@@ -152,7 +154,7 @@ class SMWExportController {
 
 		// let other extensions add additional RDF data for this page
 		$additionalDataArray = array();
-		wfRunHooks( 'smwAddToRDFExport', array( $diWikiPage, &$additionalDataArray, ( $recursiondepth != 0 ), $this->add_backlinks ) );
+		\Hooks::run( 'smwAddToRDFExport', array( $diWikiPage, &$additionalDataArray, ( $recursiondepth != 0 ), $this->add_backlinks ) );
 		foreach ( $additionalDataArray as $additionalData ) {
 			$this->serializer->serializeExpData( $additionalData ); // serialise
 		}
@@ -215,8 +217,8 @@ class SMWExportController {
 				if ( NS_CATEGORY === $diWikiPage->getNamespace() ) { // also print elements of categories
 					$options = new SMWRequestOptions();
 					$options->limit = 100; // Categories can be large, always use limit
-					$instances = \SMW\StoreFactory::getStore()->getPropertySubjects( new SMWDIProperty( '_INST' ), $diWikiPage, $options );
-					$pinst = new SMWDIProperty( '_INST' );
+					$instances = \SMW\StoreFactory::getStore()->getPropertySubjects( new SMW\DIProperty( '_INST' ), $diWikiPage, $options );
+					$pinst = new SMW\DIProperty( '_INST' );
 
 					foreach ( $instances as $instance ) {
 						if ( !array_key_exists( $instance->getHash(), $this->element_done ) ) {
@@ -239,13 +241,24 @@ class SMWExportController {
 
 					$res = \SMW\StoreFactory::getStore()->getQueryResult( $query );
 					$resarray = $res->getNext();
-					$pinst = new SMWDIProperty( '_INST' );
+					$pinst = new SMW\DIProperty( '_INST' );
 
 					while ( $resarray !== false ) {
 						$instance = end( $resarray )->getNextDataItem();
 
+						if ( !$instance instanceof \SMWDataItem ) {
+							$resarray = $res->getNext();
+							continue;
+						}
+
 						if ( !array_key_exists( $instance->getHash(), $this->element_done ) ) {
 							$semdata = $this->getSemanticData( $instance, true );
+
+							if ( !$semdata instanceof \SMW\SemanticData ) {
+								$resarray = $res->getNext();
+								continue;
+							}
+
 							$semdata->addPropertyObjectValue( $pinst, $diWikiPage );
 							$expData = SMWExporter::getInstance()->makeExportData( $semdata );
 							$this->serializer->serializeExpData( $expData );
@@ -297,6 +310,8 @@ class SMWExportController {
 	 * Check if the given object has already been serialised at sufficient
 	 * recursion depth.
 	 * @param SMWDIWikiPage $st specifying the object to check
+	 *
+	 * @return boolean
 	 */
 	protected function isPageDone( SMWDIWikiPage $di, $recdepth ) {
 		return $this->isHashDone( $di->getHash(), $recdepth );
@@ -353,7 +368,7 @@ class SMWExportController {
 		if ( $core_props_only ) { // be sure to filter all non-relevant things that may still be present in the retrieved
 			$result = new SMWSemanticData( $diWikiPage );
 			foreach ( array( '_URI', '_TYPE', '_IMPO' ) as $propid ) {
-				$prop = new SMWDIProperty( $propid );
+				$prop = new SMW\DIProperty( $propid );
 				$values = $semdata->getPropertyValues( $prop );
 				foreach ( $values as $dv ) {
 					$result->addPropertyObjectValue( $prop, $dv );
@@ -505,7 +520,7 @@ class SMWExportController {
 			if ( is_null( $title ) || !smwfIsSemanticsProcessed( $title->getNamespace() ) ) {
 				continue;
 			}
-			if ( !SMWExportController::fitsNsRestriction( $ns_restriction, $title->getNamespace() ) ) {
+			if ( !self::fitsNsRestriction( $ns_restriction, $title->getNamespace() ) ) {
 				continue;
 			}
 			$a_count += 1; // DEBUG
@@ -519,7 +534,7 @@ class SMWExportController {
 				// resolve dependencies that will otherwise not be printed
 				foreach ( $this->element_queue as $key => $diaux ) {
 					if ( !smwfIsSemanticsProcessed( $diaux->getNamespace() ) ||
-					     !SMWExportController::fitsNsRestriction( $ns_restriction, $diaux->getNamespace() ) ) {
+					     !self::fitsNsRestriction( $ns_restriction, $diaux->getNamespace() ) ) {
 						// Note: we do not need to check the cache to guess if an element was already
 						// printed. If so, it would not be included in the queue in the first place.
 						$d_count += 1; // DEBUG
@@ -725,8 +740,11 @@ class SMWExportController {
 	 * requires the namespace to be identical to the given number; "-1"
 	 * requires the namespace to be different from Category, Property, and
 	 * Type; "false" means "no restriction".
+	 *
 	 * @param $res mixed encoding the restriction as described above
 	 * @param $ns integer the namespace constant to be checked
+	 *
+	 * @return boolean
 	 */
 	static public function fitsNsRestriction( $res, $ns ) {
 		if ( $res === false ) {

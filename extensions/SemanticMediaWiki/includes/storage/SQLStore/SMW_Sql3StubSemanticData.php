@@ -3,6 +3,7 @@
 use SMW\DataTypeRegistry;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
+use SMW\StoreFactory;
 
 /**
  * This class provides a subclass of SMWSemanticData that can store
@@ -67,6 +68,26 @@ class SMWSql3StubSemanticData extends SMWSemanticData {
 	public function __construct( SMWDIWikiPage $subject, SMWSQLStore3 $store, $noDuplicates = true ) {
 		$this->store = $store;
 		parent::__construct( $subject, $noDuplicates );
+	}
+
+	/**
+	 * Required to support php-serialization
+	 *
+	 * @since 2.3
+	 *
+	 * @return array
+	 */
+	public function __sleep() {
+		return array( 'mSubject', 'mPropVals', 'mProperties', 'subSemanticData', 'mStubPropVals' );
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @return array
+	 */
+	public function __wakeup() {
+		$this->store = StoreFactory::getStore( 'SMW\SQLStore\SQLStore' );
 	}
 
 	/**
@@ -165,7 +186,7 @@ class SMWSql3StubSemanticData extends SMWSemanticData {
 		foreach ( $this->getProperties() as $property ) {
 
 			// #619 Do not resolve subobjects for redirects
-			if ( $property->findPropertyTypeID() !== '__sob' || $this->isRedirect() ) {
+			if ( !DataTypeRegistry::getInstance()->isSubDataType( $property->findPropertyTypeID() ) || $this->isRedirect() ) {
 				continue;
 			}
 

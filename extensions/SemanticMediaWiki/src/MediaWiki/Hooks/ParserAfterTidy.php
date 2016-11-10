@@ -63,6 +63,7 @@ class ParserAfterTidy {
 
 		// @see ParserData::setSemanticDataStateToParserOutputProperty
 		if ( $this->parser->getOutput()->getProperty( 'smw-semanticdata-status' ) ||
+			$this->parser->getOutput()->getProperty( 'displaytitle' ) ||
 			$this->parser->getOutput()->getCategoryLinks() ||
 			$this->parser->getDefaultSort() ) {
 			return true;
@@ -94,13 +95,6 @@ class ParserAfterTidy {
 
 	private function updateAnnotionsForAfterParse( $propertyAnnotatorFactory, $semanticData ) {
 
-		$propertyAnnotator = $propertyAnnotatorFactory->newSortkeyPropertyAnnotator(
-			$semanticData,
-			$this->parser->getDefaultSort()
-		);
-
-		$propertyAnnotator->addAnnotation();
-
 		$propertyAnnotator = $propertyAnnotatorFactory->newCategoryPropertyAnnotator(
 			$semanticData,
 			$this->parser->getOutput()->getCategoryLinks()
@@ -108,8 +102,23 @@ class ParserAfterTidy {
 
 		$propertyAnnotator->addAnnotation();
 
-		$propertyAnnotator = $propertyAnnotatorFactory->newTypeByImportPropertyAnnotator(
+		$propertyAnnotator = $propertyAnnotatorFactory->newMandatoryTypePropertyAnnotator(
 			$semanticData
+		);
+
+		$propertyAnnotator->addAnnotation();
+
+		$propertyAnnotator = $propertyAnnotatorFactory->newDisplayTitlePropertyAnnotator(
+			$semanticData,
+			$this->parser->getOutput()->getProperty( 'displaytitle' ),
+			$this->parser->getDefaultSort()
+		);
+
+		$propertyAnnotator->addAnnotation();
+
+		$propertyAnnotator = $propertyAnnotatorFactory->newSortKeyPropertyAnnotator(
+			$semanticData,
+			$this->parser->getDefaultSort()
 		);
 
 		$propertyAnnotator->addAnnotation();
@@ -126,13 +135,33 @@ class ParserAfterTidy {
 	 */
 	private function checkForRequestedUpdateByPagePurge( $parserData ) {
 
+		// Only carry out a purge where InTextAnnotationParser have set
+		// an appropriate context reference otherwise it is assumed that the hook
+		// call is part of another non SMW related parse
+		if ( $parserData->getSemanticData()->getSubject()->getContextReference() === null ) {
+			return true;
+		}
+
 		$cache = $this->applicationFactory->getCache();
+		$start = microtime( true );
 
-		$cache->setKey( ArticlePurge::newCacheId( $this->parser->getTitle()->getArticleID() ) );
+		$key = $this->applicationFactory->newCacheFactory()->getPurgeCacheKey(
+			$this->parser->getTitle()->getArticleID()
+		);
 
-		if( $cache->get() ) {
-			$cache->delete();
-			$parserData->updateStore();
+		if( $cache->contains( $key ) && $cache->fetch( $key ) ) {
+			$cache->delete( $key );
+
+			// Set a timestamp explicitly to create a new hash for the property
+			// table change row differ and force a data comparison (this doesn't
+			// change the _MDAT annotation)
+			$parserData->getSemanticData()->setLastModified( wfTimestamp( TS_UNIX ) );
+			$parserData->updateStore( true );
+
+			$parserData->addLimitReport(
+				'pagepurge-storeupdatetime',
+				number_format( ( microtime( true ) - $start ), 3 )
+			);
 		}
 
 		return true;

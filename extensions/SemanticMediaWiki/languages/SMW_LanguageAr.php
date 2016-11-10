@@ -39,6 +39,7 @@ class SMWLanguageAr extends SMWLanguage {
 		'_tel' => 'رقم الهاتف',  // name of the telephone (URI) type
 		'_rec' => 'تسجيل', // name of record data type
 		'_qty' => 'Quantity', // name of the number type with units of measurement //TODO: translate
+		'_mlt_rec' => 'Monolingual text',
 	);
 
 	protected $m_DatatypeAliases = array(
@@ -74,7 +75,16 @@ class SMWLanguageAr extends SMWLanguage {
 		'_ASKDE'=> 'Query depth', // TODO: translate
 		'_ASKDU'=> 'Query duration', // TODO: translate
 		'_MEDIA'=> 'Media type',
-		'_MIME' => 'Mime type'
+		'_MIME' => 'MIME type',
+		'_ERRC' => 'Has processing error',
+		'_ERRT' => 'Has processing error text',
+		'_PREC'  => 'Display precision of',
+		'_LCODE' => 'Language code',
+		'_TEXT'  => 'Text',
+		'_PDESC' => 'Has property description',
+		'_PVAP'  => 'Allows pattern',
+		'_DTITLE' => 'Display title of',
+		'_PVUC' => 'Has uniqueness constraint',
 	);
 
 	protected $m_SpecialPropertyAliases = array(

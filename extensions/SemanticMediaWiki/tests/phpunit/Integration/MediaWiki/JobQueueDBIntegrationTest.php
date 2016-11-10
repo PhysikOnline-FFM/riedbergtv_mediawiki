@@ -2,14 +2,11 @@
 
 namespace SMW\Tests\Integration\MediaWiki;
 
-use SMW\Tests\Utils\UtilityFactory;
-use SMW\Tests\MwDBaseUnitTestCase;
-
-use SMW\ApplicationFactory;
-use SMW\DIWikiPage;
-
-use Title;
 use Job;
+use SMW\ApplicationFactory;
+use SMW\Tests\MwDBaseUnitTestCase;
+use SMW\Tests\Utils\UtilityFactory;
+use Title;
 
 /**
  * @group SMW
@@ -95,44 +92,6 @@ class JobQueueDBIntegrationTest extends MwDBaseUnitTestCase {
 		parent::tearDown();
 	}
 
-	/**
-	 * @dataProvider titleProvider
-	 */
-	public function testPageDeleteTriggersDeleteSubjectJob( $source, $associate ) {
-
-		$subject = DIWikiPage::newFromTitle( $source['title'] );
-
-		$this->semanticDataValidator->assertThatSemanticDataIsEmpty(
-			$this->getStore()->getSemanticData( $subject )
-		);
-
-		$this->pageCreator
-			->createPage( $source['title'] )
-			->doEdit( $source['edit'] );
-
-		$this->pageCreator
-			->createPage( $associate['title'] )
-			->doEdit( $associate['edit'] );
-
-		$this->semanticDataValidator->assertThatSemanticDataIsNotEmpty(
-			$this->getStore()->getSemanticData( $subject )
-		);
-
-		$this->pageDeleter->deletePage( $source['title'] );
-
-		$this->semanticDataValidator->assertThatSemanticDataIsEmpty(
-			$this->getStore()->getSemanticData( $subject )
-		);
-
-		$this->assertJob( 'SMW\DeleteSubjectJob' );
-
-		foreach ( array( 'withAssociates', 'asDeferredJob', 'semanticData' ) as $parameter ) {
-			$this->assertTrue( $this->job->hasParameter( $parameter ) );
-		}
-
-		$this->pageDeleter->deletePage( $associate['title'] );
-	}
-
 	public function testPageMoveTriggersUpdateJob() {
 
 		$oldTitle = Title::newFromText( __METHOD__ . '-old' );
@@ -147,21 +106,23 @@ class JobQueueDBIntegrationTest extends MwDBaseUnitTestCase {
 			->getTitle()
 			->moveTo( $newTitle, false, 'test', true );
 
-		$this->assertJob( 'SMW\UpdateJob' );
+		// Execute the job directly
+		// $this->assertJob( 'SMW\UpdateJob' );
 
-		$this->assertContains(
-			$this->job->getTitle()->getPrefixedText(),
-			array( $oldTitle->getPrefixedText(), $newTitle->getPrefixedText() )
+		$this->assertTrue(
+			$oldTitle->isRedirect()
 		);
 
-		$this->pageDeleter->deletePage( $oldTitle );
+		$this->pageDeleter->deletePage(
+			$oldTitle
+		);
 	}
 
 	public function testSQLStoreRefreshDataTriggersUpdateJob() {
 
 		$index = 1; //pass-by-reference
 
-		$this->getStore()->refreshData( $index, 1, false, true );
+		$this->getStore()->refreshData( $index, 1, false, true )->dispatchRebuildFor( $index );
 		$this->assertJob( 'SMW\UpdateJob' );
 	}
 
@@ -242,6 +203,8 @@ class JobQueueDBIntegrationTest extends MwDBaseUnitTestCase {
 	 */
 	public function testNoInfiniteUpdateJobsForCircularRedirect() {
 
+		$this->skipTestForMediaWikiVersionLowerThan( '1.20' );
+
 		$this->pageCreator
 			->createPage( Title::newFromText( 'Foo-A' ) )
 			->doEdit( '[[Foo-A::{{PAGENAME}}]] {{#ask: [[Foo-A::{{PAGENAME}}]] }}' )
@@ -263,6 +226,10 @@ class JobQueueDBIntegrationTest extends MwDBaseUnitTestCase {
 			$this->assertTrue( $status['status'] );
 		}
 
+		$this->assertTrue(
+			Title::newFromText( 'Foo-A' )->isRedirect()
+		);
+
 		$this->deletePoolOfPages = array(
 			Title::newFromText( 'Foo-A' ),
 			Title::newFromText( 'Foo-B' ),
@@ -279,7 +246,7 @@ class JobQueueDBIntegrationTest extends MwDBaseUnitTestCase {
 			->doEdit( '[[Has type::Page]]' );
 
 		$this->pageCreator
-			->createPage( Title::newFromText( 'Foo' ), NS_MAIN )
+			->createPage( Title::newFromText( 'Foo', NS_MAIN ) )
 			->doEdit( '[[FooProperty::SomePage]]' );
 
 		$this->pageCreator

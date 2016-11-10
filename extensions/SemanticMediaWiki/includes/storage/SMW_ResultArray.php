@@ -1,5 +1,11 @@
 <?php
+
+use SMW\DataValueFactory;
+use SMW\InTextAnnotationParser;
 use SMW\Query\PrintRequest;
+use SMW\Query\TemporaryEntityListAccumulator;
+use SMWDataItem as DataItem;
+use SMWDIBlob as DIBlob;
 
 /**
  * Container for the contents of a single result field of a query result,
@@ -16,25 +22,30 @@ class SMWResultArray {
 	/**
 	 * @var PrintRequest
 	 */
-	protected $mPrintRequest;
+	private $mPrintRequest;
 
 	/**
 	 * @var SMWDIWikiPage
 	 */
-	protected $mResult;
+	private $mResult;
 
 	/**
 	 * @var SMWStore
 	 */
-	protected $mStore;
+	private $mStore;
 
 	/**
-	 * @var array of SMWDataItem or false
+	 * @var SMWDataItem[]|false
 	 */
-	protected $mContent;
+	private $mContent;
 
-	static protected $catCacheObj = false;
-	static protected $catCache = false;
+	/**
+	 * @var TemporaryEntityListAccumulator|null
+	 */
+	private $temporaryEntityListAccumulator;
+
+	static private $catCacheObj = false;
+	static private $catCache = false;
 
 	/**
 	 * Constructor.
@@ -71,10 +82,23 @@ class SMWResultArray {
 	}
 
 	/**
+	 * Temporary track what entities are used while being instantiated, so an external
+	 * service can have access to the list without requiring to resolve the objects
+	 * independently.
+	 *
+	 * @since  2.4
+	 *
+	 * @return TemporaryEntityListAccumulator
+	 */
+	public function setEntityListAccumulator( TemporaryEntityListAccumulator $temporaryEntityListAccumulator ) {
+		$this->temporaryEntityListAccumulator = $temporaryEntityListAccumulator;
+	}
+
+	/**
 	 * Returns an array of SMWDataItem objects that contain the results of
 	 * the given print request for the given result object.
 	 *
-	 * @return array of SMWDataItem or false
+	 * @return SMWDataItem[]|false
 	 */
 	public function getContent() {
 		$this->loadContent();
@@ -104,11 +128,16 @@ class SMWResultArray {
 	 *
 	 * @since 1.6
 	 *
-	 * @return SMWDataItem or false
+	 * @return SMWDataItem|false
 	 */
 	public function getNextDataItem() {
 		$this->loadContent();
 		$result = current( $this->mContent );
+
+		if ( $this->temporaryEntityListAccumulator !== null && $result instanceof DataItem ) {
+			$this->temporaryEntityListAccumulator->addToEntityList( null, $result );
+		}
+
 		next( $this->mContent );
 		return $result;
 	}
@@ -120,7 +149,7 @@ class SMWResultArray {
 	 *
 	 * @since 1.7.1
 	 *
-	 * @return SMWDataItem or false
+	 * @return SMWDataItem|false
 	 */
 	public function reset() {
 		$this->loadContent();
@@ -133,21 +162,27 @@ class SMWResultArray {
 	 *
 	 * @since 1.6
 	 *
-	 * @return SMWDataValue or false
+	 * @return SMWDataValue|false
 	 */
 	public function getNextDataValue() {
-		$di = $this->getNextDataItem();
-		if ( $di === false ) {
+		$dataItem = $this->getNextDataItem();
+
+		if ( $dataItem === false ) {
 			return false;
 		}
+
 		if ( $this->mPrintRequest->getMode() == PrintRequest::PRINT_PROP &&
-		     $this->mPrintRequest->getTypeID() == '_rec' &&
+		    strpos( $this->mPrintRequest->getTypeID(), '_rec' ) !== false &&
 		     $this->mPrintRequest->getParameter( 'index' ) !== false ) {
 			// Not efficient, but correct: we need to find the right property for
 			// the selected index of the record here.
 			$pos = $this->mPrintRequest->getParameter( 'index' ) - 1;
-			$recordValue = \SMW\DataValueFactory::getInstance()->newDataItemValue( $di,
-				$this->mPrintRequest->getData()->getDataItem() );
+
+			$recordValue = DataValueFactory::getInstance()->newDataValueByItem(
+				$dataItem,
+				$this->mPrintRequest->getData()->getDataItem()
+			);
+
 			$diProperties = $recordValue->getPropertyDataItems();
 
 			if ( array_key_exists( $pos, $diProperties ) &&
@@ -161,11 +196,34 @@ class SMWResultArray {
 		} else {
 			$diProperty = null;
 		}
-		$dv = \SMW\DataValueFactory::getInstance()->newDataItemValue( $di, $diProperty );
-		if ( $this->mPrintRequest->getOutputFormat() ) {
-			$dv->setOutputFormat( $this->mPrintRequest->getOutputFormat() );
+
+		// refs #1314
+		if ( $this->mPrintRequest->getMode() == PrintRequest::PRINT_PROP &&
+			strpos( $this->mPrintRequest->getTypeID(), '_txt' ) !== false &&
+			$dataItem instanceof DIBlob ) {
+			$dataItem = new DIBlob(
+				InTextAnnotationParser::removeAnnotation( $dataItem->getString() )
+			);
 		}
-		return $dv;
+
+		$dataValue = DataValueFactory::getInstance()->newDataValueByItem(
+			$dataItem,
+			$diProperty
+		);
+
+		$dataValue->setContextPage(
+			$this->mResult
+		);
+
+		if ( $this->mPrintRequest->getOutputFormat() ) {
+			$dataValue->setOutputFormat( $this->mPrintRequest->getOutputFormat() );
+		}
+
+		if ( $this->temporaryEntityListAccumulator !== null && $dataItem instanceof DataItem ) {
+			$this->temporaryEntityListAccumulator->addToEntityList( $diProperty, $dataItem );
+		}
+
+		return $dataValue;
 	}
 
 	/**
@@ -178,7 +236,7 @@ class SMWResultArray {
 	 * @param integer $outputMode
 	 * @param mixed $linker
 	 *
-	 * @return string or false
+	 * @return string|false
 	 */
 	public function getNextText( $outputMode, $linker = null ) {
 		$dataValue = $this->getNextDataValue();
@@ -205,7 +263,7 @@ class SMWResultArray {
 			case PrintRequest::PRINT_CATS:
 				// Always recompute cache here to ensure output format is respected.
 				self::$catCache = $this->mStore->getPropertyValues( $this->mResult,
-					new SMWDIProperty( '_INST' ), $this->getRequestOptions( false ) );
+					new SMW\DIProperty( '_INST' ), $this->getRequestOptions( false ) );
 				self::$catCacheObj = $this->mResult->getHash();
 
 				$limit = $this->mPrintRequest->getParameter( 'limit' );
@@ -224,13 +282,13 @@ class SMWResultArray {
 				// Print one component of a multi-valued string.
 				// Known limitation: the printrequest still is of type _rec, so if printers check
 				// for this then they will not recognize that it returns some more concrete type.
-				if ( ( $this->mPrintRequest->getTypeID() == '_rec' ) &&
+				if ( strpos( $this->mPrintRequest->getTypeID(), '_rec' ) !== false &&
 				     ( $this->mPrintRequest->getParameter( 'index' ) !== false ) ) {
 					$pos = $this->mPrintRequest->getParameter( 'index' ) - 1;
 					$newcontent = array();
 
 					foreach ( $this->mContent as $diContainer ) {
-						/* SMWRecordValue */ $recordValue = \SMW\DataValueFactory::getInstance()->newDataItemValue( $diContainer, $propertyValue->getDataItem() );
+						/* SMWRecordValue */ $recordValue = DataValueFactory::getInstance()->newDataValueByItem( $diContainer, $propertyValue->getDataItem() );
 						$dataItems = $recordValue->getDataItems();
 
 						if ( array_key_exists( $pos, $dataItems ) &&
@@ -244,7 +302,7 @@ class SMWResultArray {
 			break;
 			case PrintRequest::PRINT_CCAT: ///NOTE: The limit is ignored here.
 				if ( self::$catCacheObj != $this->mResult->getHash() ) {
-					self::$catCache = $this->mStore->getPropertyValues( $this->mResult, new SMWDIProperty( '_INST' ) );
+					self::$catCache = $this->mStore->getPropertyValues( $this->mResult, new SMW\DIProperty( '_INST' ) );
 					self::$catCacheObj = $this->mResult->getHash();
 				}
 
@@ -274,7 +332,7 @@ class SMWResultArray {
 	 *
 	 * @param boolean $useLimit
 	 *
-	 * @return SMWRequestOptions or null
+	 * @return SMWRequestOptions|null
 	 */
 	protected function getRequestOptions( $useLimit = true ) {
 		$limit = $useLimit ? $this->mPrintRequest->getParameter( 'limit' ) : false;

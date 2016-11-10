@@ -5,9 +5,9 @@ namespace SMW\SQLStore\QueryEngine\Interpreter;
 use SMW\DIProperty;
 use SMW\Query\Language\ClassDescription;
 use SMW\Query\Language\Description;
-use SMW\SQLStore\QueryEngine\QueryBuilder;
 use SMW\SQLStore\QueryEngine\DescriptionInterpreter;
 use SMW\SQLStore\QueryEngine\QuerySegment;
+use SMW\SQLStore\QueryEngine\QuerySegmentListBuilder;
 
 /**
  * @license GNU GPL v2+
@@ -20,17 +20,17 @@ use SMW\SQLStore\QueryEngine\QuerySegment;
 class ClassDescriptionInterpreter implements DescriptionInterpreter {
 
 	/**
-	 * @var QueryBuilder
+	 * @var QuerySegmentListBuilder
 	 */
-	private $queryBuilder;
+	private $querySegmentListBuilder;
 
 	/**
 	 * @since 2.2
 	 *
-	 * @param QueryBuilder $queryBuilder
+	 * @param QuerySegmentListBuilder $querySegmentListBuilder
 	 */
-	public function __construct( QueryBuilder $queryBuilder ) {
-		$this->queryBuilder = $queryBuilder;
+	public function __construct( QuerySegmentListBuilder $querySegmentListBuilder ) {
+		$this->querySegmentListBuilder = $querySegmentListBuilder;
 	}
 
 	/**
@@ -60,7 +60,7 @@ class ClassDescriptionInterpreter implements DescriptionInterpreter {
 
 		foreach ( $description->getCategories() as $category ) {
 
-			$categoryId = $this->queryBuilder->getStore()->getObjectIds()->getSMWPageID(
+			$categoryId = $this->querySegmentListBuilder->getStore()->getObjectIds()->getSMWPageID(
 				$category->getDBkey(),
 				NS_CATEGORY,
 				$category->getInterwiki(),
@@ -77,10 +77,11 @@ class ClassDescriptionInterpreter implements DescriptionInterpreter {
 			$query->joinTable = '';
 			$query->joinfield = '';
 		} else { // Instance query with disjunction of classes (categories)
-			$query->joinTable = $this->queryBuilder->getStore()->findPropertyTableID( new DIProperty( '_INST' ) );
+			$query->joinTable = $this->querySegmentListBuilder->getStore()->findPropertyTableID( new DIProperty( '_INST' ) );
 			$query->joinfield = "$query->alias.s_id";
 			$query->components[$cqid] = "$query->alias.o_id";
-			$this->queryBuilder->addQuerySegmentForId( $cqid, $cquery );
+
+			$this->querySegmentListBuilder->addQuerySegment( $cquery );
 		}
 
 		return $query;

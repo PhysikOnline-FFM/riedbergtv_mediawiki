@@ -24,16 +24,18 @@
     <testsuites>
         <testsuite name="semantic-mediawiki-unit">
             <directory>tests/phpunit/includes</directory>
+            <directory>tests/phpunit/Unit</directory>
         </testsuite>
         <testsuite name="semantic-mediawiki-integration">
             <directory>tests/phpunit/Integration</directory>
             <exclude>tests/phpunit/Integration/MediaWiki/Import</exclude>
+            <exclude>tests/phpunit/Integration/System</exclude>
         </testsuite>
         <testsuite name="semantic-mediawiki-import">
             <directory>tests/phpunit/Integration/MediaWiki/Import</directory>
         </testsuite>
         <testsuite name="semantic-mediawiki-system">
-            <directory>tests/phpunit/System</directory>
+            <directory>tests/phpunit/Integration/System</directory>
         </testsuite>
         <testsuite name="semantic-mediawiki-benchmark">
             <file>tests/phpunit/Benchmark/ImportPageCopyBenchmarkTest.php</file>
@@ -57,7 +59,13 @@
         </whitelist>
     </filter>
     <php>
+       <var name="smwgSemanticsEnabled" value="true"/>
+       <var name="wgUseFileCache" value="false"/>
        <var name="smwgSparqlDefaultGraph" value="http://example.org/phpunit-testrun"/>
+       <var name="smwgValueLookupCacheType" value="hash"/>
+       <var name="smwgEnabledDeferredUpdate" value="false"/>
+       <var name="smwgEnabledHttpDeferredJobRequest" value="false"/>
+       <var name="smwgEnabledQueryDependencyLinksStore" value="true"/>
        <var name="benchmarkQueryRepetitionExecutionThreshold" value="5"/>
        <var name="benchmarkQueryLimit" value="500"/>
        <var name="benchmarkQueryOffset" value="0"/>

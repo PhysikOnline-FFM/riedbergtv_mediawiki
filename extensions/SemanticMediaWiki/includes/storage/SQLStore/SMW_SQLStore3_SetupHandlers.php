@@ -1,9 +1,7 @@
 <?php
 
-use SMW\MediaWiki\Jobs\UpdateJob;
-use SMW\MediaWiki\Jobs\JobBase;
-
 use Onoi\MessageReporter\MessageReporter;
+use SMW\CompatibilityMode;
 
 /**
  * @ingroup SMWStore
@@ -35,6 +33,14 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 	}
 
 	public function setup( $verbose = true ) {
+
+		// If for some reason the enableSemantics was not yet enabled
+		// still allow to run the tables create in order for the
+		// setup to be completed
+		if ( CompatibilityMode::extensionNotEnabled() ) {
+			CompatibilityMode::enableTemporaryCliUpdateMode();
+		}
+
 		$this->reportProgress( "Setting up standard database configuration for SMW ...\n\n", $verbose );
 		$this->reportProgress( "Selected storage engine is \"SMWSQLStore3\" (or an extension thereof)\n\n", $verbose );
 
@@ -88,7 +94,7 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 
 		// Set up table for internal IDs used in this store:
 		SMWSQLHelpers::setupTable(
-			SMWSql3SmwIds::tableName,
+			SMWSQLStore3::ID_TABLE,
 			array(
 				'smw_id' => $idType,
 				'smw_namespace' => $dbtypes['n'] . ' NOT NULL',
@@ -103,10 +109,11 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 		);
 
 		SMWSQLHelpers::setupIndex(
-			SMWSql3SmwIds::tableName,
+			SMWSQLStore3::ID_TABLE,
 			array(
 				'smw_id',
 				'smw_id,smw_sortkey',
+				'smw_iw', // iw match lookup
 				'smw_title,smw_namespace,smw_iw,smw_subobject', // id lookup
 				'smw_sortkey' // select by sortkey (range queries)
 			),
@@ -125,6 +132,25 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 		);
 
 		SMWSQLHelpers::setupIndex( SMWSQLStore3::CONCEPT_CACHE_TABLE, array( 'o_id' ), $db );
+
+		SMWSQLHelpers::setupTable(
+			SMWSQLStore3::QUERY_LINKS_TABLE,
+			array(
+				's_id' => $dbtypes['p'] . ' NOT NULL',
+				'o_id' => $dbtypes['p'] . ' NOT NULL'
+			),
+			$db,
+			$reportTo
+		);
+
+		SMWSQLHelpers::setupIndex( SMWSQLStore3::QUERY_LINKS_TABLE,
+			array(
+				's_id',
+				'o_id',
+				's_id,o_id'
+			),
+			$db
+		);
 
 		// Set up table for stats on Properties (only counts for now)
 		SMWSQLHelpers::setupTable(
@@ -157,7 +183,15 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 		$addedCustomTypeSignatures = false;
 
 		foreach ( $this->store->getPropertyTables() as $proptable ) {
-			$diHandler = $this->store->getDataItemHandlerForDIType( $proptable->getDiType() );
+
+			// Only extensions that aren't setup correctly can force an exception
+			// and to avoid a failure during setup, ensure that standard tables
+			// are correctly initialized otherwise SMW can't recover
+			try {
+				$diHandler = $this->store->getDataItemHandlerForDIType( $proptable->getDiType() );
+			} catch ( \Exception $e ) {
+				continue;
+			}
 
 			// Prepare indexes. By default, property-value tables
 			// have the following indexes:
@@ -195,7 +229,7 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 			foreach ( $diHandler->getTableFields() as $fieldname => $typeid ) {
 				// If the type signature is not recognized and the custom signatures have not been added, add them.
 				if ( !$addedCustomTypeSignatures && !array_key_exists( $typeid, $dbtypes ) ) {
-					wfRunHooks( 'SMWCustomSQLStoreFieldType', array( &$dbtypes ) );
+					\Hooks::run( 'SMWCustomSQLStoreFieldType', array( &$dbtypes ) );
 					$addedCustomTypeSignatures = true;
 				}
 
@@ -219,43 +253,14 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 	protected function setupPredefinedProperties( $verbose, DatabaseBase $db ) {
 		global $wgDBtype;
 
-		$this->reportProgress( "Setting up internal property indices ...\n", $verbose );
-
-		// Check if we already have this structure
-		$borderiw = $db->selectField( SMWSql3SmwIds::tableName, 'smw_iw', 'smw_id=' . $db->addQuotes( 50 ) );
-
-		if ( $borderiw != SMW_SQL3_SMWBORDERIW ) {
-			$this->reportProgress( "   ... allocating space for internal properties ...\n", $verbose );
-			$this->store->smwIds->moveSMWPageID( 50 ); // make sure position 50 is empty
-
-			$db->insert( SMWSql3SmwIds::tableName, array(
-					'smw_id' => 50,
-					'smw_title' => '',
-					'smw_namespace' => 0,
-					'smw_iw' => SMW_SQL3_SMWBORDERIW,
-					'smw_subobject' => '',
-					'smw_sortkey' => ''
-				), 'SMW::setup'
-			); // put dummy "border element" on index 50
-
-			$this->reportProgress( '   ', $verbose );
-
-			for ( $i = 0; $i < 50; $i++ ) { // make way for built-in ids
-				$this->store->smwIds->moveSMWPageID( $i );
-				$this->reportProgress( '.', $verbose );
-			}
-
-			$this->reportProgress( "   done.\n", $verbose );
-		} else {
-			$this->reportProgress( "   ... space for internal properties already allocated.\n", $verbose );
-		}
+		$this->checkPredefinedPropertyBorder( $verbose, $db );
 
 		// now write actual properties; do that each time, it is cheap enough and we can update sortkeys by current language
-		$this->reportProgress( "   ... writing entries for internal properties ...", $verbose );
+		$this->reportProgress( "   ... writing entries for internal properties ...\n", $verbose );
 
 		foreach ( SMWSql3SmwIds::$special_ids as $prop => $id ) {
-			$p = new SMWDIProperty( $prop );
-			$db->replace( SMWSql3SmwIds::tableName, array( 'smw_id' ), array(
+			$p = new SMW\DIProperty( $prop );
+			$db->replace( SMWSQLStore3::ID_TABLE, array( 'smw_id' ), array(
 					'smw_id' => $id,
 					'smw_title' => $p->getKey(),
 					'smw_namespace' => SMW_NS_PROPERTY,
@@ -266,14 +271,14 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 			);
 		}
 
-		$this->reportProgress( " done.\n", $verbose );
+		$this->reportProgress( "   ... done.\n", $verbose );
 
 		if ( $wgDBtype == 'postgres' ) {
-			$sequenceIndex = SMWSql3SmwIds::tableName . '_smw_id_seq';
+			$sequenceIndex = SMWSQLStore3::ID_TABLE . '_smw_id_seq';
 
 			$this->reportProgress( " ... updating {$sequenceIndex} sequence accordingly.\n", $verbose );
 
-			$max = $db->selectField( SMWSql3SmwIds::tableName, 'max(smw_id)', array(), __METHOD__ );
+			$max = $db->selectField( SMWSQLStore3::ID_TABLE, 'max(smw_id)', array(), __METHOD__ );
 			$max += 1;
 
 			$db->query( "ALTER SEQUENCE {$sequenceIndex} RESTART WITH {$max}", __METHOD__ );
@@ -286,8 +291,15 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 		global $wgDBtype;
 
 		$this->reportProgress( "Deleting all database content and tables generated by SMW ...\n\n", $verbose );
-		$dbw = wfGetDB( DB_MASTER );
-		$tables = array( SMWSql3SmwIds::tableName, SMWSQLStore3::CONCEPT_CACHE_TABLE, SMWSQLStore3::PROPERTY_STATISTICS_TABLE );
+
+		$dbw = $this->store->getConnection( 'mw.db' );
+
+		$tables = array(
+			SMWSQLStore3::ID_TABLE,
+			SMWSQLStore3::CONCEPT_CACHE_TABLE,
+			SMWSQLStore3::PROPERTY_STATISTICS_TABLE,
+			SMWSQLStore3::QUERY_LINKS_TABLE
+		);
 
 		foreach ( $this->store->getPropertyTables() as $proptable ) {
 			$tables[] = $proptable->getName();
@@ -302,123 +314,6 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 		$this->reportProgress( "All data removed successfully.\n", $verbose );
 
 		return true;
-	}
-
-	/**
-	 * @see SMWStore::refreshData
-	 *
-	 * @todo This method will be overhauled in SMW 1.9 to become cleaner
-	 * and more robust.
-	 *
-	 * @param integer $index
-	 * @param integer $count
-	 * @param mixed $namespaces Array or false
-	 * @param boolean $usejobs
-	 *
-	 * @return decimal between 0 and 1 to indicate the overall progress of the refreshing
-	 */
-	public function refreshData( &$index, $count, $namespaces = false, $usejobs = true ) {
-		$updatejobs = array();
-		$emptyrange = true; // was nothing done in this run?
-
-		// Update by MediaWiki page id --> make sure we get all pages.
-		$tids = array();
-
-		// Array of ids
-		for ( $i = $index; $i < $index + $count; $i++ ) {
-			$tids[] = $i;
-		}
-
-		$titles = Title::newFromIDs( $tids );
-
-		foreach ( $titles as $title ) {
-			if ( ( $namespaces == false ) || ( in_array( $title->getNamespace(), $namespaces ) ) ) {
-				$updatejobs[] = new SMWUpdateJob( $title );
-				$emptyrange = false;
-			}
-		}
-
-		// update by internal SMW id --> make sure we get all objects in SMW
-		$dbr = wfGetDB( DB_SLAVE );
-
-		$res = $dbr->select(
-			SMWSql3SmwIds::tableName,
-			array( 'smw_id', 'smw_title', 'smw_namespace', 'smw_iw', 'smw_subobject' ),
-			array(
-				"smw_id >= $index ",
-				" smw_id < " . $dbr->addQuotes( $index + $count )
-			),
-			__METHOD__
-		);
-
-		foreach ( $res as $row ) {
-			$emptyrange = false; // note this even if no jobs were created
-
-			if ( $namespaces && !in_array( $row->smw_namespace, $namespaces ) ) {
-				continue;
-			}
-
-			// Find page to refresh, even for special properties:
-			if ( $row->smw_title != '' && $row->smw_title{0} != '_' ) {
-				$titleKey = $row->smw_title;
-			} elseif ( $row->smw_namespace == SMW_NS_PROPERTY && $row->smw_iw == '' && $row->smw_subobject == '' ) {
-				$titleKey = str_replace( ' ', '_', SMWDIProperty::findPropertyLabel( $row->smw_title ) );
-			} else {
-				$titleKey = '';
-			}
-
-			if ( $row->smw_subobject !== '' ) {
-				// leave subobjects alone; they ought to be changed with their pages
-			} elseif ( ( $row->smw_iw === '' || $row->smw_iw == SMW_SQL3_SMWREDIIW ) &&
-				$titleKey != '' ){
-				// objects representing pages
-				// TODO: special treament of redirects needed, since the store will
-				// not act on redirects that did not change according to its records
-				$title = Title::makeTitleSafe( $row->smw_namespace, $titleKey );
-
-				if ( $title !== null && !$title->exists() ) {
-					$updatejobs[] = new UpdateJob( $title );
-				}
-			} elseif ( $row->smw_iw == SMW_SQL3_SMWIW_OUTDATED ) { // remove outdated internal object references
-				$dbw = wfGetDB( DB_MASTER );
-				foreach ( $this->store->getPropertyTables() as $proptable ) {
-					if ( $proptable->usesIdSubject() ) {
-						$dbw->delete( $proptable->getName(), array( 's_id' => $row->smw_id ), __METHOD__ );
-					}
-				}
-
-				$dbw->delete( SMWSql3SmwIds::tableName, array( 'smw_id' => $row->smw_id ), __METHOD__ );
-			} elseif ( $titleKey != '' ) { // "normal" interwiki pages or outdated internal objects -- delete
-				$diWikiPage = new SMWDIWikiPage( $titleKey, $row->smw_namespace, $row->smw_iw );
-				$emptySemanticData = new SMWSemanticData( $diWikiPage );
-				$this->store->updateData( $emptySemanticData );
-			}
-		}
-		$dbr->freeResult( $res );
-
-		wfRunHooks('smwRefreshDataJobs', array(&$updatejobs));
-
-		if ( $usejobs ) {
-			JobBase::batchInsert( $updatejobs );
-		} else {
-			foreach ( $updatejobs as $job ) {
-				$job->run();
-			}
-		}
-
-		$nextpos = $index + $count;
-
-		if ( $emptyrange ) { // nothing found, check if there will be more pages later on
-			$next1 = $dbr->selectField( 'page', 'page_id', "page_id >= $nextpos", __METHOD__, array( 'ORDER BY' => "page_id ASC" ) );
-			$next2 = $dbr->selectField( SMWSql3SmwIds::tableName, 'smw_id', "smw_id >= $nextpos", __METHOD__, array( 'ORDER BY' => "smw_id ASC" ) );
-			$nextpos = $next2 != 0 && $next2 < $next1 ? $next2 : $next1;
-		}
-
-		$max1 = $dbr->selectField( 'page', 'MAX(page_id)', '', __METHOD__ );
-		$max2 = $dbr->selectField( SMWSql3SmwIds::tableName, 'MAX(smw_id)', '', __METHOD__ );
-		$index = $nextpos ? $nextpos : -1;
-
-		return $index > 0 ? $index / max( $max1, $max2 ) : 1;
 	}
 
 	/**
@@ -446,6 +341,53 @@ class SMWSQLStore3SetupHandlers implements MessageReporter {
 	 */
 	public function reportMessage( $message ) {
 		$this->reportProgress( $message );
+	}
+
+	private function checkPredefinedPropertyBorder( $verbose, DatabaseBase $db ) {
+
+		$this->reportProgress( "Setting up internal property indices ...\n", $verbose );
+
+		// Check if we already have this structure
+		$expectedID = SMWSQLStore3::FIXED_PROPERTY_ID_UPPERBOUND;
+
+		$currentID = $db->selectRow(
+			SMWSQLStore3::ID_TABLE,
+			'smw_id',
+			'smw_iw=' . $db->addQuotes( SMW_SQL3_SMWBORDERIW )
+		);
+
+		if ( $currentID !== false && $currentID->smw_id == $expectedID ) {
+			return $this->reportProgress( "   ... space for internal properties already allocated.\n", $verbose );
+		}
+
+		// Legacy bound
+		$currentID = $currentID === false ? 50 : $currentID->smw_id;
+
+		$this->reportProgress( "   ... allocating space for internal properties ...\n", $verbose );
+		$this->store->smwIds->moveSMWPageID( $expectedID );
+
+		$db->insert(
+			SMWSQLStore3::ID_TABLE,
+			array(
+				'smw_id' => $expectedID,
+				'smw_title' => '',
+				'smw_namespace' => 0,
+				'smw_iw' => SMW_SQL3_SMWBORDERIW,
+				'smw_subobject' => '',
+				'smw_sortkey' => ''
+			),
+			__METHOD__
+		);
+
+		$this->reportProgress( "   ... moving from $currentID to $expectedID ", $verbose );
+
+		// make way for built-in ids
+		for ( $i = $currentID; $i < $expectedID; $i++ ) {
+			$this->store->smwIds->moveSMWPageID( $i );
+			$this->reportProgress( '.', $verbose );
+		}
+
+		$this->reportProgress( "\n   ... done.\n", $verbose );
 	}
 
 }

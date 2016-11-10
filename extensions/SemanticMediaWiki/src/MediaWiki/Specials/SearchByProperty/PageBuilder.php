@@ -3,9 +3,13 @@
 namespace SMW\MediaWiki\Specials\SearchByProperty;
 
 use Html;
+use SMW\ApplicationFactory;
 use SMW\DataTypeRegistry;
-use SMW\MediaWiki\Renderer\HtmlFormRenderer;
+use SMW\DataValueFactory;
+use SMW\DIProperty;
+use SMW\DIWikiPage;
 use SMW\MediaWiki\MessageBuilder;
+use SMW\MediaWiki\Renderer\HtmlFormRenderer;
 use SMWDataValue as DataValue;
 use SMWInfolink as Infolink;
 use SMWStringValue as StringValue;
@@ -72,6 +76,14 @@ class PageBuilder {
 
 		list( $resultMessage, $resultList, $resultCount ) = $this->getResultHtml();
 
+		if ( ( $resultList === '' || $resultList === null ) &&
+			$this->pageRequestOptions->property->getDataItem() instanceof DIProperty &&
+			$this->pageRequestOptions->valueString === '' ) {
+			list( $resultMessage, $resultList, $resultCount ) = $this->tryToFindAtLeastOnePropertyTableReferenceFor(
+				$this->pageRequestOptions->property->getDataItem()
+			);
+		}
+
 		if ( $resultList === '' || $resultList === null ) {
 			$resultList = $this->messageBuilder->getMessage( 'smw_result_noresults' )->text();
 		}
@@ -130,6 +142,11 @@ class PageBuilder {
 
 		if ( $this->pageRequestOptions->propertyString === '' || !$this->pageRequestOptions->propertyString ) {
 			return array( $this->messageBuilder->getMessage( 'smw_sbv_docu' )->text(), '', 0 );
+		}
+
+		// #1728
+		if ( !$this->pageRequestOptions->property->isValid() ) {
+			return array( implode( ',', $this->pageRequestOptions->property->getErrors() ), '', 0 );
 		}
 
 		if ( $this->pageRequestOptions->valueString !== '' && !$this->pageRequestOptions->value->isValid() ) {
@@ -245,6 +262,8 @@ class PageBuilder {
 		$html = '';
 
 		foreach ( $results as $result ) {
+
+			$result[0]->setOutputFormat( 'LOCL' );
 			$listitem = $result[0]->getLongHTMLText( $this->linker );
 
 			if ( $this->canShowSearchByPropertyLink( $result[0] ) ) {
@@ -274,6 +293,8 @@ class PageBuilder {
 				( !$this->pageRequestOptions->value->getDataItem()->equals( $result[1]->getDataItem() )
 					|| $highlight ) ) {
 
+				$result[1]->setOutputFormat( 'LOCL' );
+
 				$listitem .= "&#160;<em><small>" . $this->messageBuilder->getMessage( 'parentheses' )
 					->rawParams( $result[1]->getLongHTMLText( $this->linker ) )
 					->escaped() . "</small></em>";
@@ -297,6 +318,49 @@ class PageBuilder {
 	private function canShowSearchByPropertyLink ( DataValue $dataValue ) {
 		$dataTypeClass = DataTypeRegistry::getInstance()->getDataTypeClassById( $dataValue->getTypeID() );
 		return $this->pageRequestOptions->value instanceof $dataTypeClass && $this->pageRequestOptions->valueString === '';
+	}
+
+	private function tryToFindAtLeastOnePropertyTableReferenceFor( DIProperty $property ) {
+
+		$resultList = '';
+		$resultMessage = '';
+		$resultCount = 0;
+		$extra = '';
+
+		$dataItem = ApplicationFactory::getInstance()->getStore()->getPropertyTableIdReferenceFinder()->tryToFindAtLeastOneReferenceForProperty(
+			$property
+		);
+
+		if ( !$dataItem instanceof DIWikiPage ) {
+			$resultMessage = 'No reference found.';
+			return array( $resultMessage, $resultList, $resultCount );
+		}
+
+		// In case the item has already been marked as deleted but is yet pending
+		// for removal
+		if ( $dataItem->getInterWiki() === ':smw-delete' ) {
+			$resultMessage = 'Item reference "' . $dataItem->getSubobjectName() . '" has already been marked for removal.';
+			$dataItem = new DIWikiPage( $dataItem->getDBKey(), $dataItem->getNamespace() );
+		}
+
+		$dataValue = DataValueFactory::getInstance()->newDataValueByItem(
+			$dataItem
+		);
+
+		$dataValue->setOutputFormat( 'LOCL' );
+
+		if ( $dataValue->isValid() ) {
+			//$resultMessage = 'Item reference for a zero-marked property.';
+			$resultList = $dataValue->getShortHtmlText( $this->linker ) . ' ' . $extra;
+			$resultCount++;
+
+			$resultList .= '&#160;&#160;' . Infolink::newBrowsingLink(
+				'+',
+				$dataValue->getLongWikiText()
+			)->getHTML( $this->linker );
+		}
+
+		return array( $resultMessage, $resultList, $resultCount );
 	}
 
 }

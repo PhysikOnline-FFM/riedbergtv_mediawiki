@@ -11,36 +11,48 @@ namespace SMW;
  */
 class NamespaceManager {
 
-	/** @var array */
+	/**
+	 * @var array
+	 */
 	protected $globalVars;
 
 	/**
 	 * @since 1.9
 	 *
 	 * @param array &$globalVars
-	 * @param string|null &directory
 	 */
-	public function __construct( &$globalVars, $directory = null ) {
+	public function __construct( &$globalVars ) {
 		$this->globalVars =& $globalVars;
-		$this->directory = $directory;
 	}
 
 	/**
 	 * @since 1.9
 	 */
-	public function run() {
+	public function init() {
 
 		if ( !$this->isDefinedConstant( 'SMW_NS_PROPERTY' ) ) {
 			$this->initCustomNamespace( $this->globalVars );
 		}
 
 		if ( empty( $this->globalVars['smwgContLang'] ) ) {
-			$this->initContentLanguage( $this->globalVars['wgLanguageCode'] );
+			$this->globalVars['smwgContLang'] = ExtraneousLanguage::getInstance()->fetchByLanguageCode( $this->globalVars['wgLanguageCode'] );
 		}
 
 		$this->addNamespaceSettings();
 
 		return true;
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param string $languageCode
+	 *
+	 * @return array
+	 */
+	public static function getNamespacesByLanguageCode( $languageCode ) {
+		$GLOBALS['smwgContLang'] = ExtraneousLanguage::getInstance()->fetchByLanguageCode( $languageCode );
+		return $GLOBALS['smwgContLang']->getNamespaces();
 	}
 
 	/**
@@ -60,6 +72,11 @@ class NamespaceManager {
 			SMW_NS_CONCEPT       => 'Concept',
 			SMW_NS_CONCEPT_TALK  => 'Concept_talk'
 		);
+
+		if ( !array_key_exists( 'smwgHistoricTypeNamespace', $GLOBALS ) || !$GLOBALS['smwgHistoricTypeNamespace'] ) {
+			unset( $canonicalNames[SMW_NS_TYPE] );
+			unset( $canonicalNames[SMW_NS_TYPE_TALK] );
+		}
 
 		return $canonicalNames;
 	}
@@ -111,6 +128,8 @@ class NamespaceManager {
 				define( $ns, $index );
 			};
 		}
+
+		$globalVars['wgExtraNamespaces'] = ( isset( $globalVars['wgExtraNamespaces'] ) ? $globalVars['wgExtraNamespaces'] : array() ) + self::getCanonicalNames();
 	}
 
 	protected function addNamespaceSettings() {
@@ -121,8 +140,8 @@ class NamespaceManager {
 		/**
 		 * @var SMWLanguage $smwgContLang
 		 */
-		$this->globalVars['wgExtraNamespaces'] = $this->globalVars['wgExtraNamespaces'] + $this->globalVars['smwgContLang']->getNamespaces();
-		$this->globalVars['wgNamespaceAliases'] = $this->globalVars['wgNamespaceAliases'] + $this->globalVars['smwgContLang']->getNamespaceAliases();
+		$this->globalVars['wgExtraNamespaces'] = $this->globalVars['smwgContLang']->getNamespaces() + $this->globalVars['wgExtraNamespaces'];
+		$this->globalVars['wgNamespaceAliases'] = array_flip( $this->globalVars['smwgContLang']->getNamespaces() ) + $this->globalVars['wgNamespaceAliases'];
 
 		// Support subpages only for talk pages by default
 		$this->globalVars['wgNamespacesWithSubpages'] = $this->globalVars['wgNamespacesWithSubpages'] + array(
@@ -159,46 +178,9 @@ class NamespaceManager {
 
 	}
 
-	/**
-	 * Initialise a global language object for content language. This must happen
-	 * early on, even before user language is known, to determine labels for
-	 * additional namespaces. In contrast, messages can be initialised much later
-	 * when they are actually needed.
-	 *
-	 * @since 1.9
-	 */
-	protected function initContentLanguage( $langcode ) {
-		Profiler::In();
-
-		$this->setLanguage( $langcode );
-		$this->isValidLanguageClassOrSetFallback( $this->globalVars['smwContLangClass'], 'en' );
-
-		$this->globalVars['smwgContLang'] = new $this->globalVars['smwContLangClass'];
-
-		Profiler::Out();
-	}
-
-	protected function setLanguage( $langcode ) {
-
-		$this->globalVars['smwContLangFile'] = 'SMW_Language' . str_replace( '-', '_', ucfirst( $langcode ) );
-		$this->globalVars['smwContLangClass'] = 'SMWLanguage' . str_replace( '-', '_', ucfirst( $langcode ) );
-
-		$file = $this->directory . '/' . 'languages' . '/' . $this->globalVars['smwContLangFile'] . '.php';
-
-		if ( file_exists( $file ) ) {
-			include_once ( $file );
-		}
-	}
-
 	protected function isValidConfigurationOrSetDefault( $element, $default ) {
 		if ( !isset( $this->globalVars[$element] ) || !is_array( $this->globalVars[$element] ) ) {
 			$this->globalVars[$element] = $default;
-		}
-	}
-
-	protected function isValidLanguageClassOrSetFallback( $langClass, $fallbackLanguageCode ) {
-		if ( !class_exists( $langClass ) ) {
-			$this->setLanguage( $fallbackLanguageCode );
 		}
 	}
 

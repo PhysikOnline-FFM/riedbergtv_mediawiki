@@ -2,10 +2,9 @@
 
 namespace SMW;
 
+use Html;
 use SMWRequestOptions;
 use SMWStringCondition;
-
-use Html;
 use Xml;
 
 /**
@@ -125,6 +124,7 @@ abstract class QueryPage extends \QueryPage {
 	public function getSearchForm( $property = '', $cacheDate = '' ) {
 
 		$this->useSerchForm = true;
+		$this->getOutput()->addModules( 'ext.smw.property' );
 
 		// No need to verify $this->selectOptions because its values are set
 		// during doQuery() which is processed before this form is generated
@@ -147,7 +147,7 @@ abstract class QueryPage extends \QueryPage {
 				Xml::tags( 'p', array(), $selection ) .
 				Xml::tags( 'p', array(), $cacheDate ) .
 				Xml::tags( 'hr', array( 'style' => 'margin-bottom:10px;' ), '' ) .
-				Xml::inputLabel( $this->msg( 'smw-sp-property-searchform' )->text(), 'property', 'property', 20, $property ) . ' ' .
+				Xml::inputLabel( $this->msg( 'smw-sp-property-searchform' )->text(), 'property', 'smw-property-input', 20, $property ) . ' ' .
 				Xml::submitButton( $this->msg( 'allpagessubmit' )->text() )
 			)
 		);
@@ -173,7 +173,7 @@ abstract class QueryPage extends \QueryPage {
 		$options->sort = true;
 
 		if ( $property ) {
-			$options->addStringCondition( str_replace( ' ', '_', $property ), SMWStringCondition::STRCOND_MID );
+			$options->addStringCondition( $property, SMWStringCondition::STRCOND_MID );
 		}
 
 		$res = $this->getResults( $options );

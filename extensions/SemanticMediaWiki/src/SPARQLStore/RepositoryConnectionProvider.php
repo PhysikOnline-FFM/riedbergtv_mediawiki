@@ -2,10 +2,9 @@
 
 namespace SMW\SPARQLStore;
 
+use Onoi\HttpRequest\CurlRequest;
 use RuntimeException;
 use SMW\DBConnectionProvider;
-use SMW\CurlRequest;
-use SMW\SPARQLStore\RepositoryConnection;
 
 /**
  * Provides an one-stop solution for creating a valid instance for a
@@ -24,12 +23,12 @@ class RepositoryConnectionProvider implements DBConnectionProvider {
 	 * @var array
 	 */
 	private $connectorIdToClass = array(
-		'default'   => 'SMW\SPARQLStore\Connector\GenericHttpRepositoryConnector',
-		'generic'   => 'SMW\SPARQLStore\Connector\GenericHttpRepositoryConnector',
-		'sesame'    => 'SMW\SPARQLStore\Connector\GenericHttpRepositoryConnector',
-		'fuseki'    => 'SMW\SPARQLStore\Connector\FusekiHttpRepositoryConnector',
-		'virtuoso'  => 'SMW\SPARQLStore\Connector\VirtuosoHttpRepositoryConnector',
-		'4store'    => 'SMW\SPARQLStore\Connector\FourstoreHttpRepositoryConnector',
+		'default'   => 'SMW\SPARQLStore\RepositoryConnector\GenericHttpRepositoryConnector',
+		'generic'   => 'SMW\SPARQLStore\RepositoryConnector\GenericHttpRepositoryConnector',
+		'sesame'    => 'SMW\SPARQLStore\RepositoryConnector\GenericHttpRepositoryConnector',
+		'fuseki'    => 'SMW\SPARQLStore\RepositoryConnector\FusekiHttpRepositoryConnector',
+		'virtuoso'  => 'SMW\SPARQLStore\RepositoryConnector\VirtuosoHttpRepositoryConnector',
+		'4store'    => 'SMW\SPARQLStore\RepositoryConnector\FourstoreHttpRepositoryConnector',
 	);
 
 	/**
@@ -63,6 +62,11 @@ class RepositoryConnectionProvider implements DBConnectionProvider {
 	private $dataEndpoint = null;
 
 	/**
+	 * @var boolean|integer
+	 */
+	private $httpVersion = false;
+
+	/**
 	 * @since 2.0
 	 *
 	 * @param string|null $connectorId
@@ -72,16 +76,40 @@ class RepositoryConnectionProvider implements DBConnectionProvider {
 	 * @param string|null $dataEndpoint
 	 */
 	public function __construct( $connectorId = null, $defaultGraph = null, $queryEndpoint = null, $updateEndpoint = null, $dataEndpoint = null ) {
-			$this->connectorId = $connectorId;
+		$this->connectorId = $connectorId;
+		$this->defaultGraph = $defaultGraph;
+		$this->queryEndpoint = $queryEndpoint;
+		$this->updateEndpoint = $updateEndpoint;
+		$this->dataEndpoint = $dataEndpoint;
 
-			if ( $this->connectorId === null ) {
-				$this->connectorId = $GLOBALS['smwgSparqlDatabaseConnector'];
-			}
+		if ( $this->connectorId === null ) {
+			$this->connectorId = $GLOBALS['smwgSparqlDatabaseConnector'];
+		}
 
-			$this->defaultGraph = $defaultGraph;
-			$this->queryEndpoint = $queryEndpoint;
-			$this->updateEndpoint = $updateEndpoint;
-			$this->dataEndpoint = $dataEndpoint;
+		if ( $this->defaultGraph === null ) {
+			$this->defaultGraph = $GLOBALS['smwgSparqlDefaultGraph'];
+		}
+
+		if ( $this->queryEndpoint === null ) {
+			$this->queryEndpoint = $GLOBALS['smwgSparqlQueryEndpoint'];
+		}
+
+		if ( $this->updateEndpoint === null ) {
+			$this->updateEndpoint = $GLOBALS['smwgSparqlUpdateEndpoint'];
+		}
+
+		if ( $this->dataEndpoint === null ) {
+			$this->dataEndpoint = $GLOBALS['smwgSparqlDataEndpoint'];
+		}
+	}
+
+	/**
+	 * @since 2.3
+	 *
+	 * @return integer $httpVersion
+	 */
+	public function setHttpVersionTo( $httpVersion ) {
+		$this->httpVersion = $httpVersion;
 	}
 
 	/**
@@ -114,25 +142,16 @@ class RepositoryConnectionProvider implements DBConnectionProvider {
 
 		$repositoryConnector = $this->mapConnectorIdToClass( $connectorId );
 
-		if ( $this->defaultGraph === null ) {
-			$this->defaultGraph = $GLOBALS['smwgSparqlDefaultGraph'];
-		}
+		$curlRequest = new CurlRequest( curl_init() );
 
-		if ( $this->queryEndpoint === null ) {
-			$this->queryEndpoint = $GLOBALS['smwgSparqlQueryEndpoint'];
-		}
-
-		if ( $this->updateEndpoint === null ) {
-			$this->updateEndpoint = $GLOBALS['smwgSparqlUpdateEndpoint'];
-		}
-
-		if ( $this->dataEndpoint === null ) {
-			$this->dataEndpoint = $GLOBALS['smwgSparqlDataEndpoint'];
+		// https://github.com/SemanticMediaWiki/SemanticMediaWiki/issues/1306
+		if ( $this->httpVersion ) {
+			$curlRequest->setOption( CURLOPT_HTTP_VERSION, $this->httpVersion );
 		}
 
 		$connection = new $repositoryConnector(
 			new RepositoryClient( $this->defaultGraph, $this->queryEndpoint, $this->updateEndpoint, $this->dataEndpoint ),
-			new CurlRequest( curl_init() )
+			$curlRequest
 		);
 
 		if ( $this->isRepositoryConnection( $connection ) ) {

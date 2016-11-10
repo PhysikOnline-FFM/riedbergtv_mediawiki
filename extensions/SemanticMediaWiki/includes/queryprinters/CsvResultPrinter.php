@@ -2,10 +2,8 @@
 
 namespace SMW;
 
-use SMWQueryProcessor;
-use SMWQueryResult;
 use Sanitizer;
-use SMWQuery;
+use SMWQueryResult;
 
 /**
  * CSV export for SMW Queries
@@ -59,10 +57,6 @@ class CsvResultPrinter extends FileExportPrinter {
 	 */
 	public function getFileName( SMWQueryResult $queryResult ) {
 		return $this->params['filename'];
-	}
-
-	public function getQueryMode( $context ) {
-		return ( $context == SMWQueryProcessor::SPECIAL_PAGE ) ? SMWQuery::MODE_INSTANCES : SMWQuery::MODE_NONE;
 	}
 
 	protected function getResultText( SMWQueryResult $res, $outputMode ) {
@@ -149,11 +143,3 @@ class CsvResultPrinter extends FileExportPrinter {
 		return $params;
 	}
 }
-
-/**
- * SMWCsvResultPrinter
- * @codeCoverageIgnore
- *
- * @deprecated since SMW 1.9
- */
-class_alias( 'SMW\CsvResultPrinter', 'SMWCsvResultPrinter' );

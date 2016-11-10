@@ -58,6 +58,13 @@ class SMWSQLStore3Readers {
 			true
 		);
 
+		// Ensures that a cached item to contain an expected sortKey when
+		// for example the ID was just created and the sortKey from the DB
+		// is empty otherwise the DB wins over the invoked sortKey
+		if ( !$sortKey ) {
+			$sortKey = $subject->getSortKey();
+		}
+
 		$subject->setSortKey( $sortKey );
 
 		if ( $sid == 0 ) {
@@ -186,7 +193,7 @@ class SMWSQLStore3Readers {
 	public function getPropertyValues( $subject, SMWDIProperty $property, $requestOptions = null ) {
 
 		if ( $property->isInverse() ) { // inverses are working differently
-			$noninverse = new SMWDIProperty( $property->getKey(), false );
+			$noninverse = new SMW\DIProperty( $property->getKey(), false );
 			$result = $this->getPropertySubjects( $noninverse, $subject, $requestOptions );
 		} elseif ( !is_null( $subject ) ) { // subject given, use semantic data cache
 			$sid = $this->store->smwIds->getSMWPageID( $subject->getDBkey(),
@@ -203,6 +210,11 @@ class SMWSQLStore3Readers {
 			} else {
 				$propTableId = $this->store->findPropertyTableID( $property );
 				$proptables =  $this->store->getPropertyTables();
+
+				if ( !isset( $proptables[$propTableId] ) ) {
+					return array();
+				}
+
 				$sd = $this->getSemanticDataFromTable( $sid, $subject, $proptables[$propTableId] );
 				$result = $this->store->applyRequestOptions( $sd->getPropertyValues( $property ), $requestOptions );
 			}
@@ -299,7 +311,7 @@ class SMWSQLStore3Readers {
 					  's_title=' . $db->addQuotes( $object->getDBkey() ) .
 					  ' AND s_namespace=' . $db->addQuotes( $object->getNamespace() );
 			if ( !$propTable->isFixedPropertyTable() ) { // select property name
-				$from .= ' INNER JOIN ' . $db->tableName( SMWSql3SmwIds::tableName ) . ' AS p ON p_id=p.smw_id';
+				$from .= ' INNER JOIN ' . $db->tableName( SMWSql3SmwIds::TABLE_NAME ) . ' AS p ON p_id=p.smw_id';
 				$select .= 'p.smw_title as prop';
 			} // else: fixed property, no select needed
 		} elseif ( !$propTable->isFixedPropertyTable() ) { // restrict property only
@@ -315,7 +327,7 @@ class SMWSQLStore3Readers {
 		$fields = $diHandler->getFetchFields();
 		foreach ( $fields as $fieldname => $typeid ) { // select object column(s)
 			if ( $typeid == 'p' ) { // get data from ID table
-				$from .= ' INNER JOIN ' . $db->tableName( SMWSql3SmwIds::tableName ) . " AS o$valuecount ON $fieldname=o$valuecount.smw_id";
+				$from .= ' INNER JOIN ' . $db->tableName( SMWSql3SmwIds::TABLE_NAME ) . " AS o$valuecount ON $fieldname=o$valuecount.smw_id";
 				$select .= ( ( $select !== '' ) ? ',' : '' ) .
 					"$fieldname AS id$valuecount" .
 					",o$valuecount.smw_title AS v$valuecount" .
@@ -375,7 +387,7 @@ class SMWSQLStore3Readers {
 
 			// #Issue 615
 			// If the iw field contains a redirect marker then remove it
-			if ( isset( $valuekeys[2] ) && $valuekeys[2] === SMW_SQL3_SMWREDIIW ) {
+			if ( isset( $valuekeys[2] ) && ( $valuekeys[2] === SMW_SQL3_SMWREDIIW || $valuekeys[2] === SMW_SQL3_SMWDELETEIW ) ) {
 				$valuekeys[2] = '';
 			}
 
@@ -387,7 +399,7 @@ class SMWSQLStore3Readers {
 			     $valuekeys[2] === '' || $valuekeys[2]{0} != ':' ) {
 
 				if ( isset( $result[$valueHash] ) ) {
-					$this->store->getLogger()->log( __METHOD__, "found duplicate for {$propertykey} " . ( is_array( $valuekeys ) ? implode( ',', $valuekeys ) : $valuekeys ) );
+					wfDebugLog( 'smw', __METHOD__ . " Duplicate entry for {$propertykey} with " . ( is_array( $valuekeys ) ? implode( ',', $valuekeys ) : $valuekeys ) . "\n" );
 				}
 
 				$result[$valueHash] = $isSubject ? array( $propertykey, $valuekeys ) : $valuekeys;
@@ -415,9 +427,15 @@ class SMWSQLStore3Readers {
 		/// TODO: should we share code with #ask query computation here? Just use queries?
 
 		if ( $property->isInverse() ) { // inverses are working differently
-			$noninverse = new SMWDIProperty( $property->getKey(), false );
+			$noninverse = new SMW\DIProperty( $property->getKey(), false );
 			$result = $this->getPropertyValues( $value, $noninverse, $requestOptions );
 			return $result;
+		}
+
+		// #1222, Filter those where types don't match (e.g property = _txt
+		// and value = _wpg)
+		if ( $value !== null && DataTypeRegistry::getInstance()->getDataItemId( $property->findPropertyTypeID() ) !== $value->getDIType() ) {
+			return array();
 		}
 
 		// First build $select, $from, and $where for the DB query
@@ -434,7 +452,7 @@ class SMWSQLStore3Readers {
 		$db = $this->store->getConnection();
 
 		if ( $proptable->usesIdSubject() ) { // join with ID table to get title data
-			$from = $db->tableName( SMWSql3SmwIds::tableName ) . " INNER JOIN " . $db->tableName( $proptable->getName() ) . " AS t1 ON t1.s_id=smw_id";
+			$from = $db->tableName( SMWSql3SmwIds::TABLE_NAME ) . " INNER JOIN " . $db->tableName( $proptable->getName() ) . " AS t1 ON t1.s_id=smw_id";
 			$select = 'smw_title, smw_namespace, smw_iw, smw_sortkey, smw_subobject';
 		} else { // no join needed, title+namespace as given in proptable
 			$from = $db->tableName( $proptable->getName() ) . " AS t1";
@@ -449,6 +467,15 @@ class SMWSQLStore3Readers {
 
 		// ***  Now execute the query and read the results  ***//
 		$result = array();
+
+		if ( !$proptable->isFixedPropertyTable() ) {
+			if ( $where !== '' && strpos( SMW_SQL3_SMWIW_OUTDATED, $where ) === false ) {
+				$where .= " AND smw_iw!=" . $db->addQuotes( SMW_SQL3_SMWIW_OUTDATED ) . " AND smw_iw!=" . $db->addQuotes( SMW_SQL3_SMWDELETEIW );
+			} else {
+				$where .= " smw_iw!=" . $db->addQuotes( SMW_SQL3_SMWIW_OUTDATED ) . " AND smw_iw!=" . $db->addQuotes( SMW_SQL3_SMWDELETEIW );
+			}
+		}
+
 		$res = $db->select( $from, 'DISTINCT ' . $select,
 		                    $where . $this->store->getSQLConditions( $requestOptions, 'smw_sortkey', 'smw_sortkey', $where !== '' ),
 		                    __METHOD__, $this->store->getSQLOptions( $requestOptions, 'smw_sortkey' ) );
@@ -510,7 +537,7 @@ class SMWSQLStore3Readers {
 					if ( $subproptable->usesIdSubject() ) { // simply add property table to check values
 						$from .= " INNER JOIN " . $db->tableName( $subproptable->getName() ) . " AS t$tableIndex ON t$tableIndex.s_id=$joinfield";
 					} else { // exotic case with table that uses subject title+namespace in container object (should never happen in SMW core)
-						$from .= " INNER JOIN " . $db->tableName( SMWSql3SmwIds::tableName ) . " AS ids$tableIndex ON ids$tableIndex.smw_id=$joinfield" .
+						$from .= " INNER JOIN " . $db->tableName( SMWSql3SmwIds::TABLE_NAME ) . " AS ids$tableIndex ON ids$tableIndex.smw_id=$joinfield" .
 						         " INNER JOIN " . $db->tableName( $subproptable->getName() ) . " AS t$tableIndex ON " .
 						         "t$tableIndex.s_title=ids$tableIndex.smw_title AND t$tableIndex.s_namespace=ids$tableIndex.smw_namespace";
 					}
@@ -596,7 +623,7 @@ class SMWSQLStore3Readers {
 				);
 
 				if ( $db->numRows( $res ) > 0 ) {
-					$result[] = new SMWDIProperty( $propertyTable->getFixedProperty() );
+					$result[] = new SMW\DIProperty( $propertyTable->getFixedProperty() );
 				}
 
 
@@ -604,14 +631,13 @@ class SMWSQLStore3Readers {
 				// select all properties
 				$from = $db->tableName( $propertyTable->getName() );
 
-				$from .= " INNER JOIN " . $db->tableName( SMWSql3SmwIds::tableName ) . " ON smw_id=p_id";
+				$from .= " INNER JOIN " . $db->tableName( SMWSql3SmwIds::TABLE_NAME ) . " ON smw_id=p_id";
 				$res = $db->select( $from, 'DISTINCT smw_title,smw_sortkey',
 					// (select sortkey since it might be used in ordering (needed by Postgres))
 					$where . $this->store->getSQLConditions( $suboptions, 'smw_sortkey', 'smw_sortkey' ),
 					__METHOD__, $this->store->getSQLOptions( $suboptions, 'smw_sortkey' ) );
-
 				foreach ( $res as $row ) {
-					$result[] = new SMWDIProperty( $row->smw_title );
+					$result[] = new SMW\DIProperty( $row->smw_title );
 				}
 			}
 
@@ -660,17 +686,19 @@ class SMWSQLStore3Readers {
 
 			$where = $from = '';
 			if ( !$proptable->isFixedPropertyTable() ) { // join ID table to get property titles
-				$from = $db->tableName( SMWSql3SmwIds::tableName ) . " INNER JOIN " . $db->tableName( $proptable->getName() ) . " AS t1 ON t1.p_id=smw_id";
+				$from = $db->tableName( SMWSql3SmwIds::TABLE_NAME ) . " INNER JOIN " . $db->tableName( $proptable->getName() ) . " AS t1 ON t1.p_id=smw_id";
 				$this->prepareValueQuery( $from, $where, $proptable, $value, 1 );
 
-				$res = $db->select( $from, 'DISTINCT smw_title,smw_sortkey',
+				$where .= " AND smw_iw!=" . $db->addQuotes( SMW_SQL3_SMWIW_OUTDATED ) . " AND smw_iw!=" . $db->addQuotes( SMW_SQL3_SMWDELETEIW );
+
+				$res = $db->select( $from, 'DISTINCT smw_title,smw_sortkey,smw_iw',
 						// select sortkey since it might be used in ordering (needed by Postgres)
 						$where . $this->store->getSQLConditions( $subOptions, 'smw_sortkey', 'smw_sortkey', $where !== '' ),
 						__METHOD__, $this->store->getSQLOptions( $subOptions, 'smw_sortkey' ) );
 
 				foreach ( $res as $row ) {
 					try {
-						$result[] = new SMWDIProperty( $row->smw_title );
+						$result[] = new SMW\DIProperty( $row->smw_title );
 					} catch (SMWDataItemException $e) {
 						// has been observed to happen (empty property title); cause unclear; ignore this data
 					}
@@ -681,7 +709,7 @@ class SMWSQLStore3Readers {
 				$res = $db->select( $from, '*', $where, __METHOD__, array( 'LIMIT' => 1 ) );
 
 				if ( $db->numRows( $res ) > 0 ) {
-					$result[] = new SMWDIProperty( $proptable->getFixedProperty() );
+					$result[] = new SMW\DIProperty( $proptable->getFixedProperty() );
 				}
 			}
 			$db->freeResult( $res );

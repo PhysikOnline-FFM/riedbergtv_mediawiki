@@ -2,10 +2,8 @@
 
 namespace SMW;
 
+use FormatJson;
 use SMWQueryResult;
-use SMWQueryProcessor;
-use SMWQuery;
-use FormatJSON;
 
 /**
  * Print links to JSON files representing query results.
@@ -66,18 +64,6 @@ class JsonResultPrinter extends FileExportPrinter {
 		} else {
 			return 'result.json';
 		}
-	}
-
-	/**
-	 * File exports use MODE_INSTANCES on special pages (so that instances are
-	 * retrieved for the export) and MODE_NONE otherwise (displaying just a download link).
-	 *
-	 * @param $context
-	 *
-	 * @return integer
-	 */
-	public function getQueryMode( $context ) {
-		return ( $context == SMWQueryProcessor::SPECIAL_PAGE ) ? SMWQuery::MODE_INSTANCES : SMWQuery::MODE_NONE;
 	}
 
 	/**

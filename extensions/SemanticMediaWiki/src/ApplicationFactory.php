@@ -2,18 +2,18 @@
 
 namespace SMW;
 
+use Closure;
+use Onoi\CallbackContainer\CallbackLoader;
+use Onoi\CallbackContainer\DeferredCallbackLoader;
 use Parser;
 use ParserOutput;
-use SMW\Annotator\PropertyAnnotatorFactory;
-use SMW\Cache\CacheHandler;
-use SMW\Factbox\FactboxBuilder;
+use SMW\Factbox\FactboxFactory;
+use SMW\Maintenance\MaintenanceFactory;
 use SMW\MediaWiki\Jobs\JobFactory;
 use SMW\MediaWiki\MwCollaboratorFactory;
 use SMW\MediaWiki\PageCreator;
 use SMW\MediaWiki\TitleCreator;
-use SMW\Query\Profiler\QueryProfilerFactory;
-use SMW\Maintenance\MaintenanceFactory;
-use SMW\Cache\CacheFactory;
+use SMW\Query\ProfileAnnotator\QueryProfileAnnotatorFactory;
 use SMWQueryParser as QueryParser;
 use Title;
 
@@ -33,18 +33,27 @@ class ApplicationFactory {
 	private static $instance = null;
 
 	/**
-	 * @var DependencyBuilder
+	 * @var CallbackLoader
 	 */
-	private $builder = null;
+	private $callbackLoader = null;
 
 	/**
 	 * @since 2.0
 	 */
-	public function __construct( DependencyBuilder $builder = null ) {
-		$this->builder = $builder;
+	public function __construct( CallbackLoader $callbackLoader = null ) {
+		$this->callbackLoader = $callbackLoader;
 	}
 
 	/**
+	 * This method returns the global instance of the application factory.
+	 *
+	 * Reliance on global state is needed at entry points into SMW such as
+	 * hook handlers, special pages and jobs, since there we tend to not
+	 * have control over the object lifecycle. Pragmatically we might also
+	 * want to use this when refactoring legacy code that already has the
+	 * global state dependency. For new code very special justification is
+	 * required to rely on global state.
+	 *
 	 * @since 2.0
 	 *
 	 * @return self
@@ -75,12 +84,20 @@ class ApplicationFactory {
 	 *
 	 * @param string $objectName
 	 * @param callable|array $objectSignature
-	 *
-	 * @return $this
 	 */
 	public function registerObject( $objectName, $objectSignature ) {
-		$this->builder->getContainer()->registerObject( $objectName, $objectSignature );
-		return $this;
+		$this->callbackLoader->registerObject( $objectName, $objectSignature );
+	}
+
+	/**
+	 * @private
+	 *
+	 * @since 2.4
+	 *
+	 * @return CallbackLoader
+	 */
+	public function getCallbackInstantiator() {
+		return $this->callbackLoader;
 	}
 
 	/**
@@ -95,10 +112,10 @@ class ApplicationFactory {
 	/**
 	 * @since 2.0
 	 *
-	 * @return FactboxBuilder
+	 * @return FactboxFactory
 	 */
-	public function newFactboxBuilder() {
-		return new FactboxBuilder();
+	public function newFactboxFactory() {
+		return $this->callbackLoader->load( 'FactboxFactory' );
 	}
 
 	/**
@@ -116,7 +133,7 @@ class ApplicationFactory {
 	 * @return JobFactory
 	 */
 	public function newJobFactory() {
-		return $this->builder->newObject( 'JobFactory' );
+		return $this->callbackLoader->load( 'JobFactory' );
 	}
 
 	/**
@@ -133,10 +150,10 @@ class ApplicationFactory {
 	/**
 	 * @since 2.1
 	 *
-	 * @return QueryProfilerFactory
+	 * @return QueryProfileAnnotatorFactory
 	 */
-	public function newQueryProfilerFactory() {
-		return new QueryProfilerFactory();
+	public function newQueryProfileAnnotatorFactory() {
+		return new QueryProfileAnnotatorFactory();
 	}
 
 	/**
@@ -154,7 +171,7 @@ class ApplicationFactory {
 	 * @return CacheFactory
 	 */
 	public function newCacheFactory() {
-		return new CacheFactory( $this->getSettings()->get( 'smwgCacheType' ) );
+		return $this->callbackLoader->load( 'CacheFactory', $this->getSettings()->get( 'smwgCacheType' ) );
 	}
 
 	/**
@@ -162,8 +179,8 @@ class ApplicationFactory {
 	 *
 	 * @return Store
 	 */
-	public function getStore() {
-		return $this->builder->newObject( 'Store' );
+	public function getStore( $store = null ) {
+		return $this->callbackLoader->singleton( 'Store', $store );
 	}
 
 	/**
@@ -172,7 +189,7 @@ class ApplicationFactory {
 	 * @return Settings
 	 */
 	public function getSettings() {
-		return $this->builder->newObject( 'Settings' );
+		return $this->callbackLoader->singleton( 'Settings' );
 	}
 
 	/**
@@ -181,7 +198,7 @@ class ApplicationFactory {
 	 * @return TitleCreator
 	 */
 	public function newTitleCreator() {
-		return $this->builder->newObject( 'TitleCreator' );
+		return $this->callbackLoader->load( 'TitleCreator', $this->newPageCreator() );
 	}
 
 	/**
@@ -190,16 +207,16 @@ class ApplicationFactory {
 	 * @return PageCreator
 	 */
 	public function newPageCreator() {
-		return $this->builder->newObject( 'PageCreator' );
+		return $this->callbackLoader->load( 'PageCreator' );
 	}
 
 	/**
 	 * @since 2.0
 	 *
-	 * @return CacheHandler
+	 * @return Cache
 	 */
 	public function getCache() {
-		return $this->builder->newObject( 'CacheHandler' );
+		return $this->callbackLoader->singleton( 'Cache' );
 	}
 
 	/**
@@ -211,11 +228,17 @@ class ApplicationFactory {
 
 		$mwCollaboratorFactory = $this->newMwCollaboratorFactory();
 
-		return new InTextAnnotationParser(
+		$inTextAnnotationParser = new InTextAnnotationParser(
 			$parserData,
-			$mwCollaboratorFactory->newMagicWordFinder(),
+			$mwCollaboratorFactory->newMagicWordsFinder(),
 			$mwCollaboratorFactory->newRedirectTargetFinder()
 		);
+
+		$inTextAnnotationParser->setStrictModeState(
+			$this->getSettings()->get( 'smwgEnabledInTextAnnotationParserStrictMode' )
+		);
+
+		return $inTextAnnotationParser;
 	}
 
 	/**
@@ -224,10 +247,7 @@ class ApplicationFactory {
 	 * @return ParserData
 	 */
 	public function newParserData( Title $title, ParserOutput $parserOutput ) {
-		return $this->builder->newObject( 'ParserData', array(
-			'Title'        => $title,
-			'ParserOutput' => $parserOutput
-		) );
+		return $this->callbackLoader->load( 'ParserData', $title, $parserOutput );
 	}
 
 	/**
@@ -236,9 +256,7 @@ class ApplicationFactory {
 	 * @return ContentParser
 	 */
 	public function newContentParser( Title $title ) {
-		return $this->builder->newObject( 'ContentParser', array(
-			'Title' => $title
-		) );
+		return $this->callbackLoader->load( 'ContentParser', $title );
 	}
 
 	/**
@@ -267,7 +285,73 @@ class ApplicationFactory {
 	 * @return NamespaceExaminer
 	 */
 	public function getNamespaceExaminer() {
-		return NamespaceExaminer::newFromArray( $this->getSettings()->get( 'smwgNamespacesWithSemanticLinks' ) );
+		return $this->callbackLoader->load( 'NamespaceExaminer' );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return PropertySpecificationLookup
+	 */
+	public function getPropertySpecificationLookup() {
+		return $this->callbackLoader->singleton( 'PropertySpecificationLookup' );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return PropertyHierarchyLookup
+	 */
+	public function newPropertyHierarchyLookup() {
+		return $this->callbackLoader->load( 'PropertyHierarchyLookup' );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return CachedPropertyValuesPrefetcher
+	 */
+	public function getCachedPropertyValuesPrefetcher() {
+		return $this->callbackLoader->singleton( 'CachedPropertyValuesPrefetcher' );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return MediaWikiNsContentReader
+	 */
+	public function getMediaWikiNsContentReader() {
+		return $this->callbackLoader->singleton( 'MediaWikiNsContentReader' );
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @return InMemoryPoolCache
+	 */
+	public function getInMemoryPoolCache() {
+		return InMemoryPoolCache::getInstance();
+	}
+
+	/**
+	 * @since 2.4
+	 *
+	 * @param Closure $callback
+	 *
+	 * @return DeferredCallableUpdate
+	 */
+	public function newDeferredCallableUpdate( Closure $callback ) {
+
+		$deferredCallableUpdate = $this->callbackLoader->create(
+			'DeferredCallableUpdate',
+			$callback
+		);
+
+		$deferredCallableUpdate->enabledDeferredUpdate(
+			$this->getSettings()->get( 'smwgEnabledDeferredUpdate' )
+		);
+
+		return $deferredCallableUpdate;
 	}
 
 	/**
@@ -279,13 +363,22 @@ class ApplicationFactory {
 		return new QueryParser();
 	}
 
-	private static function registerBuilder( DependencyBuilder $builder = null ) {
+	/**
+	 * @since 2.4
+	 *
+	 * @return QueryFactory
+	 */
+	public function newQueryFactory() {
+		return new QueryFactory();
+	}
 
-		if ( $builder === null ) {
-			$builder = new SimpleDependencyBuilder( new SharedDependencyContainer() );
+	private static function registerBuilder( CallbackLoader $callbackLoader = null ) {
+
+		if ( $callbackLoader === null ) {
+			$callbackLoader = new DeferredCallbackLoader( new SharedCallbackContainer() );
 		}
 
-		return $builder;
+		return $callbackLoader;
 	}
 
 }

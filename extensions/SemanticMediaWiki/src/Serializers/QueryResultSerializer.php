@@ -2,14 +2,13 @@
 
 namespace SMW\Serializers;
 
-use Serializers\Serializer;
-use SMW\DataValueFactory;
-use SMWDataItem as DataItem;
-use SMW\Query\PrintRequest;
-use SMWResultArray;
-use SMWQueryResult as QueryResult;
-
 use OutOfBoundsException;
+use Serializers\DispatchableSerializer;
+use SMW\DataValueFactory;
+use SMW\Query\PrintRequest;
+use SMWDataItem as DataItem;
+use SMWQueryResult as QueryResult;
+use SMWResultArray;
 use Title;
 
 /**
@@ -27,7 +26,7 @@ use Title;
  *
  * @author Jeroen De Dauw < jeroendedauw@gmail.com >
  */
-class QueryResultSerializer implements Serializer {
+class QueryResultSerializer implements DispatchableSerializer {
 
 	/**
 	 * @see SerializerInterface::serialize
@@ -43,7 +42,7 @@ class QueryResultSerializer implements Serializer {
 			throw new OutOfBoundsException( 'Object was not identified as a QueryResult instance' );
 		}
 
-		return $this->getSerializedQueryResult( $queryResult ) + array( 'serializer' => __CLASS__, 'version' => 0.5 );
+		return $this->getSerializedQueryResult( $queryResult ) + array( 'serializer' => __CLASS__, 'version' => 0.11 );
 	}
 
 	/**
@@ -67,13 +66,46 @@ class QueryResultSerializer implements Serializer {
 	public static function getSerialization( DataItem $dataItem, $printRequest = null ) {
 		switch ( $dataItem->getDIType() ) {
 			case DataItem::TYPE_WIKIPAGE:
-				$title = $dataItem->getTitle();
-				$result = array(
-					'fulltext' => $title->getFullText(),
-					'fullurl' => $title->getFullUrl(),
-					'namespace' => $title->getNamespace(),
-					'exists' => $title->isKnown()
-				);
+
+				// Support for a deserializable _rec type with 0.6
+				if ( $printRequest !== null && strpos( $printRequest->getTypeID(), '_rec' ) !== false ) {
+					$recordValue = DataValueFactory::getInstance()->newDataValueByItem(
+						$dataItem,
+						$printRequest->getData()->getDataItem()
+					);
+
+					$recordDiValues = array();
+
+					foreach ( $recordValue->getPropertyDataItems() as $property ) {
+						$label = $property->getLabel();
+
+						$recordDiValues[$label] = array(
+							'label'  => $label,
+							'key'    => $property->getKey(),
+							'typeid' => $property->findPropertyTypeID(),
+							'item'   => array()
+						);
+
+						foreach ( $recordValue->getDataItem()->getSemanticData()->getPropertyValues( $property ) as $value ) {
+							$recordDiValues[$label]['item'][] = self::getSerialization( $value );
+						}
+					}
+					$result = $recordDiValues;
+				} else {
+					$title = $dataItem->getTitle();
+
+					$wikiPageValue = DataValueFactory::getInstance()->newDataValueByItem(
+						$dataItem
+					);
+
+					$result = array(
+						'fulltext' => $title->getFullText(),
+						'fullurl' => $title->getFullUrl(),
+						'namespace' => $title->getNamespace(),
+						'exists' => strval( $title->isKnown() ),
+						'displaytitle' => $wikiPageValue->getDisplayTitle()
+					);
+				}
 				break;
 			case DataItem::TYPE_NUMBER:
 				// dataitems and datavalues
@@ -84,7 +116,7 @@ class QueryResultSerializer implements Serializer {
 				// (unit is part of the datavalue object)
 				if ( $printRequest !== null && $printRequest->getTypeID() === '_qty' ) {
 					$diProperty = $printRequest->getData()->getDataItem();
-					$dataValue = DataValueFactory::getInstance()->newDataItemValue( $dataItem, $diProperty );
+					$dataValue = DataValueFactory::getInstance()->newDataValueByItem( $dataItem, $diProperty );
 
 					$result = array(
 						'value' => $dataValue->getNumber(),
@@ -98,7 +130,10 @@ class QueryResultSerializer implements Serializer {
 				$result = $dataItem->getCoordinateSet();
 				break;
 			case DataItem::TYPE_TIME:
-				$result = $dataItem->getMwTimestamp();
+				$result = array(
+					'timestamp' => $dataItem->getMwTimestamp(),
+					'raw' => $dataItem->getSerialization()
+				);
 				break;
 			default:
 				$result = $dataItem->getSerialization();
@@ -122,12 +157,7 @@ class QueryResultSerializer implements Serializer {
 		$printRequests = array();
 
 		foreach ( $queryResult->getPrintRequests() as $printRequest ) {
-			$printRequests[] = array(
-				'label' => $printRequest->getLabel(),
-				'typeid' => $printRequest->getTypeID(),
-				'mode' => $printRequest->getMode(),
-				'format' => $printRequest->getOutputFormat()
-			);
+			$printRequests[] = self::getSerializedPrintRequestFormat( $printRequest );
 		}
 
 		/**
@@ -168,4 +198,35 @@ class QueryResultSerializer implements Serializer {
 
 		return array( 'printrequests' => $printRequests, 'results' => $results);
 	}
+
+	private static function getSerializedPrintRequestFormat( $printRequest ) {
+
+		$serialized = array(
+			'label'  => $printRequest->getLabel(),
+			'key'    => '',
+			'redi'   => '',
+			'typeid' => $printRequest->getTypeID(),
+			'mode'   => $printRequest->getMode(),
+			'format' => $printRequest->getOutputFormat()
+		);
+
+		if ( $printRequest->getMode() !== PrintRequest::PRINT_PROP ) {
+			return $serialized;
+		}
+
+		$data = $printRequest->getData();
+
+		if ( $data === null ) {
+			return $serialized;
+		}
+
+		// To match forwarded redirects
+		$serialized['redi'] = !$data->getInceptiveProperty()->equals( $data->getDataItem() ) ? $data->getInceptiveProperty()->getKey() : '';
+
+		// To match internal properties like _MDAT
+		$serialized['key'] = $data->getDataItem()->getKey();
+
+		return $serialized;
+	}
+
 }

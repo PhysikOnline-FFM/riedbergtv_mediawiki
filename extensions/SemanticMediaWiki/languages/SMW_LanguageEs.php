@@ -40,6 +40,7 @@ class SMWLanguageEs extends SMWLanguage {
 		'_tel' => 'Número de teléfono',  // name of the telephone (URI) type
 		'_rec' => 'Registro', // name of record data type
 		'_qty' => 'Cantidad', // name of the number type with units of measurement
+		'_mlt_rec' => 'Monolingual text',
 	);
 
 	protected $m_DatatypeAliases = array(
@@ -75,7 +76,16 @@ class SMWLanguageEs extends SMWLanguage {
 		'_ASKDE'=> 'Profundidad de consulta',
 		'_ASKDU'=> 'Duración de consulta',
 		'_MEDIA'=> 'Tipo Media',
-		'_MIME' => 'Tipo MIME'
+		'_MIME' => 'Tipo MIME',
+		'_ERRC' => 'Has processing error',
+		'_ERRT' => 'Has processing error text',
+		'_PREC'  => 'Display precision of',
+		'_LCODE' => 'Language code',
+		'_TEXT'  => 'Text',
+		'_PDESC' => 'Has property description',
+		'_PVAP'  => 'Allows pattern',
+		'_DTITLE' => 'Display title of',
+		'_PVUC' => 'Has uniqueness constraint',
 	);
 
 	protected $m_SpecialPropertyAliases = array(
@@ -97,6 +107,12 @@ class SMWLanguageEs extends SMWLanguage {
 
 	protected $m_monthsshort = array( "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic" );
 
+	protected $preferredDateFormatsByPrecision = array(
+		'SMW_PREC_Y'    => 'Y',
+		'SMW_PREC_YM'   => 'M Y',
+		'SMW_PREC_YMD'  => 'j M Y',
+		'SMW_PREC_YMDT' => 'H:i:s j M Y'
+	);
 }
 
 

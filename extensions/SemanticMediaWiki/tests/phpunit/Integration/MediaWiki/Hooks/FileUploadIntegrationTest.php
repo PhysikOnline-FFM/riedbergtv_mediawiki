@@ -2,13 +2,11 @@
 
 namespace SMW\Tests\Integration\MediaWiki\Hooks;
 
-use SMW\Tests\Utils\UtilityFactory;
-use SMW\Tests\MwDBaseUnitTestCase;
-
-use SMW\DIWikiPage;
 use SMW\ApplicationFactory;
+use SMW\DIWikiPage;
 use SMW\Localizer;
-
+use SMW\Tests\MwDBaseUnitTestCase;
+use SMW\Tests\Utils\UtilityFactory;
 use Title;
 
 /**
@@ -72,17 +70,17 @@ class FileUploadIntegrationTest extends MwDBaseUnitTestCase {
 
 		$this->mwHooksHandler->register(
 			'FileUpload',
-			$this->mwHooksHandler->getHookRegistry()->getDefinition( 'FileUpload' )
+			$this->mwHooksHandler->getHookRegistry()->getHandlerFor( 'FileUpload' )
 		);
 
 		$this->mwHooksHandler->register(
 			'InternalParseBeforeLinks',
-			$this->mwHooksHandler->getHookRegistry()->getDefinition( 'InternalParseBeforeLinks' )
+			$this->mwHooksHandler->getHookRegistry()->getHandlerFor( 'InternalParseBeforeLinks' )
 		);
 
 		$this->mwHooksHandler->register(
 			'LinksUpdateConstructed',
-			$this->mwHooksHandler->getHookRegistry()->getDefinition( 'LinksUpdateConstructed' )
+			$this->mwHooksHandler->getHookRegistry()->getHandlerFor( 'LinksUpdateConstructed' )
 		);
 
 		$GLOBALS['wgEnableUploads'] = true;
@@ -101,6 +99,7 @@ class FileUploadIntegrationTest extends MwDBaseUnitTestCase {
 	}
 
 	public function testFileUploadForDummyTextFile() {
+		Localizer::getInstance()->clear();
 
 		$subject = new DIWikiPage( 'Foo.txt', NS_FILE );
 		$fileNS = Localizer::getInstance()->getNamespaceTextById( NS_FILE );
@@ -142,32 +141,6 @@ class FileUploadIntegrationTest extends MwDBaseUnitTestCase {
 			'propertyCount'  => 4,
 			'propertyKeys'   => array( '_MEDIA', '_MIME', '_SKEY', 'Ichi' ),
 			'propertyValues' => array( 'TEXT', 'text/plain', 'Foo.txt', 'Maru' )
-		);
-
-		$this->semanticDataValidator->assertThatPropertiesAreSet(
-			$expected,
-			$this->getStore()->getSemanticData( $subject )
-		);
-	}
-
-	public function testDummyTextFileUploadForDisabledNamespace() {
-
-		$this->applicationFactory->getSettings()->set(
-			'smwgNamespacesWithSemanticLinks', array( NS_FILE => false )
-		);
-
-		$subject = new DIWikiPage( 'Bar.txt', NS_FILE );
-
-		$dummyTextFile = $this->fixturesFileProvider->newUploadForDummyTextFile( 'Bar.txt' );
-
-		$this->assertTrue(
-			$dummyTextFile->doUpload( '[[HasFile::File:Bar.txt]]' )
-		);
-
-		$expected = array(
-			'propertyCount'  => 1,
-			'propertyKeys'   => array( '_SKEY' ),
-			'propertyValues' => array( 'Bar.txt' )
 		);
 
 		$this->semanticDataValidator->assertThatPropertiesAreSet(

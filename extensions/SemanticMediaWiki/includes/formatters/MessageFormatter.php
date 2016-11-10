@@ -3,7 +3,6 @@
 namespace SMW;
 
 use Html;
-use Message;
 use Language;
 
 /**
@@ -81,7 +80,7 @@ class MessageFormatter {
 	public function addFromKey( $key /*...*/ ) {
 		$params = func_get_args();
 		array_shift( $params );
-		$this->addFromArray( array( new Message( $key, $params ) ) );
+		$this->addFromArray( array( new \Message( $key, $params ) ) );
 		return $this;
 	}
 
@@ -102,7 +101,15 @@ class MessageFormatter {
 	 * @return MessageFormatter
 	 */
 	public function addFromArray( array $messages ) {
-		$this->messages = array_merge ( $messages, $this->messages );
+
+		foreach ( $messages as $message ) {
+			if ( is_string( $message ) ) {
+				$this->messages[md5( $message )] = $message;
+			} else{
+				$this->messages[] = $message;
+			}
+		}
+
 		return $this;
 	}
 
@@ -206,18 +213,19 @@ class MessageFormatter {
 
 		foreach ( $messages as $msg ) {
 
-			if ( $msg instanceof Message ) {
-				$newArray[] = $msg->inLanguage( $this->language )->text();
+			if ( $msg instanceof \Message ) {
+				$text = $msg->inLanguage( $this->language )->text();
+				$newArray[md5( $text )] = $text;
 			} elseif ( (array)$msg === $msg ) {
 				foreach ( $this->doFormat( $msg ) as $m ) {
-					$newArray[] = $m;
+					$newArray[md5( $m )] = $m;
 				}
 			} elseif ( (string)$msg === $msg ) {
-				$newArray[] = $msg;
+				$newArray[md5( $msg )] = $msg;
 			}
 		}
 
-		return array_unique( $newArray );
+		return $newArray;
 	}
 
 	/**
@@ -233,9 +241,9 @@ class MessageFormatter {
 	protected function getString( $html = true ) {
 
 		if ( $this->escape ) {
-			$messages = array_map( 'htmlspecialchars', $this->doFormat( $this->messages ) );
+			$messages = array_map( 'htmlspecialchars', array_values( $this->doFormat( $this->messages ) ) );
 		} else {
-			$messages = $this->doFormat( $this->messages );
+			$messages = array_values( $this->doFormat( $this->messages ) );
 		}
 
 		if ( count( $messages ) == 1 ) {

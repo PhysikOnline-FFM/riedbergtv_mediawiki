@@ -3,13 +3,11 @@
 namespace SMW\Tests;
 
 use SMW\DIWikiPage;
-
 use SMWDataItem as DataItem;
-use SMWDINumber as DINumber;
 use SMWDIBlob as DIBlob;
 use SMWDIBoolean as DIBoolean;
 use SMWDIConcept as DIConcept;
-
+use SMWDINumber as DINumber;
 use SMWExporter as Exporter;
 use SMWExpResource as ExpResource;
 
@@ -82,7 +80,7 @@ class SMWExporterTest extends \PHPUnit_Framework_TestCase {
 		$provider[] = array( new DIBlob( 'foo' ),   'SMWExpElement' );
 		$provider[] = array( new DIBoolean( true ), 'SMWExpElement' );
 
-		$provider[] = array( new DIConcept( 'Foo', '', '', '', '' ), null );
+		$provider[] = array( new DIConcept( 'Foo', '', '', '', '' ), 'SMWExpData' );
 
 		return $provider;
 	}

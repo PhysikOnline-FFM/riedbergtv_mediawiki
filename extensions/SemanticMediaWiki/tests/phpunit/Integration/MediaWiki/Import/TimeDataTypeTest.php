@@ -2,13 +2,10 @@
 
 namespace SMW\Tests\Integration\MediaWiki\Import;
 
-use SMW\Tests\Utils\UtilityFactory;
-use SMW\Tests\MwDBaseUnitTestCase;
-
-use SMW\Tests\Utils\ByPageSemanticDataFinder;
-
 use SMW\DIProperty;
-
+use SMW\Tests\MwDBaseUnitTestCase;
+use SMW\Tests\Utils\ByPageSemanticDataFinder;
+use SMW\Tests\Utils\UtilityFactory;
 use Title;
 
 /**
@@ -36,7 +33,7 @@ class TimeDataTypeTest extends MwDBaseUnitTestCase {
 		parent::setUp();
 
 		if ( is_a( $this->getStore(), '\SMW\SPARQLStore\SPARQLStore' )
-			&& is_a( $this->getStore()->getConnection( 'sparql' ), '\SMW\SPARQLStore\Connector\VirtuosoHttpRepositoryConnector' ) ) {
+			&& is_a( $this->getStore()->getConnection( 'sparql' ), '\SMW\SPARQLStore\RepositoryConnector\VirtuosoHttpRepositoryConnector' ) ) {
 
 			$this->markTestIncomplete(
 				"Virtuoso will fail for '1 January 300 BC' with 'Virtuoso 22007 Error DT006: Cannot convert -0302-12-28Z to datetime : Incorrect month field length'"
@@ -158,11 +155,11 @@ class TimeDataTypeTest extends MwDBaseUnitTestCase {
 			'valueFormatter' => $this->setWikiValueDateValueFormatter(),
 			'property'       => DIProperty::newFromUserLabel( 'Has calendar date' ),
 			'propertyValues' => array(
-				'1 January 300 BC', // 1 January 300 BC
+				'1 January 300 BC JL', // 1 January 300 BC
 				'2147483647 BC', // 2147483647 BC
 				'14000000000 BC',
-				'24 February 2000',
-				'2 February 1492'
+				'11 February 2000 JL',
+				'2 February 1492 JL'
 			)
 		);
 
@@ -182,11 +179,11 @@ class TimeDataTypeTest extends MwDBaseUnitTestCase {
 			'valueFormatter' => $this->setWikiValueDateWithJLCalendarModelValueFormatter(),
 			'property'       => DIProperty::newFromUserLabel( 'Has calendar date' ),
 			'propertyValues' => array(
-				'1 January 300 BC', // 1 January 300 BC
+				'1 January 300 BC JL', // 1 January 300 BC
 				'2147483647 BC', // 2147483647 BC
 				'14000000000 BC',
-				'11 February 2000',
-				'2 February 1492'
+				'11 February 2000 JL',
+				'2 February 1492 JL'
 			)
 		);
 

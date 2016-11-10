@@ -3,17 +3,15 @@
 namespace SMW\Deserializers;
 
 use Deserializers\Deserializer;
-use SMW\SemanticData;
+use OutOfBoundsException;
 use SMW\DataTypeRegistry;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
-
+use SMW\SemanticData;
 use SMWContainerSemanticData;
-use SMWDIContainer as DIContainer;
 use SMWDataItem as DataItem;
+use SMWDIContainer as DIContainer;
 use SMWErrorValue as ErrorValue;
-
-use OutOfBoundsException;
 
 /**
  * @license GNU GPL v2+
@@ -101,12 +99,17 @@ class SemanticDataDeserializer implements Deserializer {
 
 		$dataItem = null;
 
+		if ( !is_array( $value ) ) {
+			return;
+		}
+
 		$type = $this->getDataItemId( $property );
 
 		// Verify that the current property type definition and the type of the
 		// property during serialization do match, throw an error value to avoid any
 		// exception during unserialization caused by the DataItem object due to a
 		// mismatch of type definitions
+
 		if ( $type === $value['type'] ) {
 			$dataItem = DataItem::newFromSerialization( $value['type'], $value['item'] );
 		} else {
@@ -159,7 +162,7 @@ class SemanticDataDeserializer implements Deserializer {
 
 		foreach ( $data['sobj'] as $subobject ) {
 
-			if ( $subobject['subject'] === $id ) {
+			if ( isset( $subobject['subject'] ) && $subobject['subject'] === $id ) {
 				$this->doDeserialize( $subobject, $semanticData );
 			}
 
